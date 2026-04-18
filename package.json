@@ -1,0 +1,15 @@
+{
+  "name": "flashcards-root",
+  "private": true,
+  "description": "Root-level script proxies so every command works from the repo root. Override the target dir with e.g. `npm --prefix other-dir run dev`.",
+  "scripts": {
+    "install-app": "npm install --prefix app",
+    "dev": "npm run dev --prefix app",
+    "build": "npm run build --prefix app",
+    "preview": "npm run preview --prefix app",
+    "tauri:dev": "npm run tauri:dev --prefix app",
+    "tauri:build": "npm run tauri:build --prefix app",
+    "test": "npm test --prefix app",
+    "test:install": "npm run test:install --prefix app"
+  }
+}

@@ -14,14 +14,19 @@ the design notes and [app/](app/) for the implementation.
 - **Rust** (stable) with `cargo` — only needed for the native Tauri build
 - macOS / Windows / Linux (Tauri 2 supports all three)
 
-First-time setup:
+## Setup
+
+All commands work from the **repo root**. The root [package.json](package.json)
+proxies to `app/` via `npm --prefix app ...`.
+
+First-time install:
 
 ```sh
-cd app
-npm install
+npm run install-app          # = npm install --prefix app
+npm run test:install         # downloads the Chromium build Playwright uses
 ```
 
-Rust deps are fetched automatically by `cargo` on first `tauri dev` / `tauri build`.
+Rust deps are fetched automatically by `cargo` on first `tauri:dev` / `tauri:build`.
 
 ## Run
 
@@ -32,8 +37,7 @@ Tauri and falls back to `localStorage` for the DB and prefs, so you can iterate
 on UI without compiling Rust.
 
 ```sh
-cd app
-npm run dev
+npm run dev                   # from repo root
 ```
 
 `?fast=<ms>` query-string override accelerates the spawn interval + fall
@@ -51,31 +55,40 @@ the `tauri-plugin-store` preferences file. First run compiles the Rust bundle
 (~1 min on a warm cache, longer cold):
 
 ```sh
-cd app
-npx tauri dev       # dev mode with HMR
-npx tauri build     # release bundle — produces app/src-tauri/target/release/bundle/...
+npm run tauri:dev             # dev mode with HMR
+npm run tauri:build           # release bundle → app/src-tauri/target/release/bundle/
 ```
 
-## Tests
+### Tests
 
 Playwright E2E suite runs against the Vite dev server in browser-only mode and
 captures screenshots into [app/screenshots/](app/screenshots/).
 
 ```sh
-cd app
-npx playwright test                          # full suite (8 tests)
-npx playwright test tests/e2e/gameplay.spec.ts
-npx playwright test --headed                 # watch it run
+npm test                      # full suite (8 tests)
+npm test -- --headed          # watch it run
+npm test -- tests/e2e/gameplay.spec.ts
 ```
 
 The Playwright config auto-starts Vite and reuses an existing dev server if one
-is already running. Chromium needs to be installed once via
-`npx playwright install chromium`.
+is already running.
+
+## Targeting a different app directory
+
+The root scripts hard-code `--prefix app`, but npm's `--prefix` flag accepts any
+path. To run against a different checkout or fork, skip the proxy and call npm
+directly:
+
+```sh
+npm --prefix /path/to/other-app run dev
+npm --prefix ../fork test
+```
 
 ## Project layout
 
 ```
 flashcards/
+├── package.json                # root proxy scripts (dev / build / test / tauri:*)
 ├── app/                        # Tauri + Vue 3 app
 │   ├── src/                    # Vue frontend (types, stores, composables, components)
 │   ├── src-tauri/              # Rust backend (rusqlite DB, commands, plugins)
