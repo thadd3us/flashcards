@@ -95,6 +95,33 @@ test.describe('Times Table Flashcards — gameplay', () => {
     await page.locator('[data-testid^="card-"]').first().waitFor();
   });
 
+  test('Escape key toggles pause (not panic)', async ({ page }) => {
+    await bootAsUser(page, 'gus');
+    await page.locator('[data-testid^="card-"]').first().waitFor();
+    // Focus the play area so keydown reaches the handler.
+    await page.locator('.play').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('paused')).toBeVisible();
+    // Panic button should NOT be armed — Escape must not have triggered it.
+    await expect(page.getByTestId('panic-btn')).toHaveText(/Panic$/);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('paused')).toBeHidden();
+  });
+
+  test('next card appears immediately after an answer (no spawn gate)', async ({
+    page,
+  }) => {
+    await bootAsUser(page, 'holly');
+    const first = await nextTargetCard(page);
+    const firstId = await first.getAttribute('data-card-id');
+    await answerCurrent(page, (a) => a);
+    // A fresh card with a different data-card-id should already be visible.
+    const next = page.locator('.card.target').first();
+    await expect(next).toBeVisible({ timeout: 500 });
+    const nextId = await next.getAttribute('data-card-id');
+    expect(nextId).not.toEqual(firstId);
+  });
+
   test('stats tab shows grid and CDF after some answers', async ({ page }) => {
     await bootAsUser(page, 'elena');
     for (let i = 0; i < 8; i++) {
@@ -123,7 +150,6 @@ test.describe('Times Table Flashcards — gameplay', () => {
     const diag = page.locator('.diag');
     await expect(diag).toContainText('Lanes 1');
     await expect(diag).toContainText('Fall 10s');
-    await expect(diag).toContainText('Spawn every 10s');
     await expect(page.locator('[data-testid^="card-"]')).toHaveCount(1);
     await page.screenshot({ path: `${SHOT_DIR}/06-calibration.png` });
   });

@@ -73,9 +73,9 @@ async function submit() {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+  if (e.key === 'Escape') {
     e.preventDefault();
-    triggerPanic();
+    togglePause();
   }
 }
 
@@ -180,7 +180,6 @@ function cardStyle(id: string): Record<string, string> {
     <div class="diag mono-caps">
       Lanes {{ game.difficulty.laneCount }} ·
       Fall {{ (game.difficulty.fallDurationMs / 1000).toFixed(0) }}s ·
-      Spawn every {{ (game.difficulty.spawnIntervalMs / 1000).toFixed(0) }}s ·
       Combo {{ session.combo }}
     </div>
   </div>

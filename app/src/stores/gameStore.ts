@@ -118,22 +118,17 @@ export const useGameStore = defineStore('game', {
       // Drop cards that belong to a now-disabled lane.
       this.cards = this.cards.filter((c) => c.laneIndex < lanes);
 
-      const now = performance.now();
-      const interval = this.difficulty.spawnIntervalMs;
-      if (now - this.lastSpawnAt < interval) return;
-
-      // Spawn into the first empty lane (round-robin order). Single-lane mode
-      // means "one card at a time"; multi-lane would fill each empty lane
-      // once per interval tick.
-      let spawned = false;
+      // Always keep each lane populated. No cadence gate: as soon as a card
+      // is answered or expires, the next one appears. When idle, the fall
+      // duration (10 s default) naturally caps spawn rate at ~1 per lane per
+      // fall interval.
       for (let lane = 0; lane < lanes; lane++) {
         const laneHasCard = this.cards.some((c) => c.laneIndex === lane);
         if (!laneHasCard) {
           this.spawnOnLane(lane);
-          spawned = true;
+          this.lastSpawnAt = performance.now();
         }
       }
-      if (spawned) this.lastSpawnAt = now;
     },
     spawnOnLane(lane: number) {
       const session = useSessionStore();
