@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import type { Question } from '../types/question';
 import { selectNextCard, estimateDifficulty, type Difficulty } from '../utils/selector';
+import type { SelectionProvenance } from '../types/answerEvent';
 import { useSessionStore } from './sessionStore';
 
 export interface ActiveCard {
@@ -8,6 +9,7 @@ export interface ActiveCard {
   question: Question;
   laneIndex: number;
   spawnedAt: number; // performance.now()
+  provenance: SelectionProvenance;
 }
 
 interface State {
@@ -91,12 +93,13 @@ export const useGameStore = defineStore('game', {
     spawnOnLane(lane: number) {
       const session = useSessionStore();
       const avoid = new Set(this.cards.map((c) => c.question.uuid));
-      const q = selectNextCard(session.combinedHistory, { avoid });
+      const sel = selectNextCard(session.combinedHistory, { avoid });
       this.cards.push({
         id: `c${this.nextIdCounter++}`,
-        question: q,
+        question: sel.question,
         laneIndex: lane,
         spawnedAt: performance.now(),
+        provenance: sel.provenance,
       });
     },
     removeCard(id: string) {
@@ -130,6 +133,7 @@ export const useGameStore = defineStore('game', {
         isCorrect,
         isTimeout: false,
         answerSubmitted: value,
+        provenance: target.provenance,
       });
       this.removeCard(target.id);
       this.updateDifficulty();
@@ -146,6 +150,7 @@ export const useGameStore = defineStore('game', {
         isCorrect: false,
         isTimeout: true,
         answerSubmitted: null,
+        provenance: card.provenance,
       });
       this.removeCard(id);
       this.updateDifficulty();

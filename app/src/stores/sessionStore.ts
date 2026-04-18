@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import type { AnswerEvent, SpeedTier } from '../types/answerEvent';
+import type { AnswerEvent, SelectionProvenance, SpeedTier } from '../types/answerEvent';
 import { classifyTier } from '../types/answerEvent';
 import { computeProficiency } from '../utils/scoring';
 import * as ipc from '../utils/ipc';
@@ -168,6 +168,7 @@ export const useSessionStore = defineStore('session', {
       isCorrect: boolean;
       isTimeout: boolean;
       answerSubmitted: number | null;
+      provenance?: SelectionProvenance;
     }) {
       if (!this.username) return;
       const event: AnswerEvent = {
@@ -181,6 +182,7 @@ export const useSessionStore = defineStore('session', {
         is_timeout: input.isTimeout,
         answer_submitted: input.answerSubmitted,
         app_version: APP_VERSION,
+        selection_provenance: input.provenance,
       };
       this.history.push(event);
       try {
