@@ -109,8 +109,9 @@ async function seedHistoryAndBoot(page: Page, username: string) {
         return `${hx.slice(0, 8)}-${hx.slice(8, 12)}-${hx.slice(12, 16)}-${hx.slice(16, 20)}-${hx.slice(20)}`;
       }
 
-      function canonicalName(a: number, b: number) {
-        return a <= b ? `${a}*${b}` : `${b}*${a}`;
+      function questionName(a: number, b: number) {
+        // Each operand order is its own card — no sorting.
+        return `${a}*${b}`;
       }
 
       // Deterministic pseudo-random
@@ -142,9 +143,9 @@ async function seedHistoryAndBoot(page: Page, username: string) {
           ':' + pad(Math.abs(tz) % 60);
         const is_correct = rand() > p_wrong;
         const rt = Math.max(400, Math.round(mean_ms + (rand() - 0.5) * 2 * mean_ms * 0.4));
-        const qu = uuidV5(canonicalName(a, b), NS);
+        const qu = uuidV5(questionName(a, b), NS);
         events.push({
-          uuid: uuidV5(`${tsStr}-${a}-${b}-${rand()}`, NS),
+          uuid: uuidV5(`${tsStr}-${a}-${b}-${rand()}-event`, NS),
           question_uuid: qu,
           question: {
             uuid: qu,

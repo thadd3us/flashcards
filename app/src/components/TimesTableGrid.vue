@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { AnswerEvent } from '../types/answerEvent';
+import { MISS_PENALTY_MS } from '../utils/scoring';
 
 const props = defineProps<{ events: AnswerEvent[] }>();
 
@@ -9,25 +10,16 @@ interface Cell {
   b: number;
   count: number;
   correct: number;
-  medianMs: number;
-}
-
-function median(vals: number[]): number {
-  if (vals.length === 0) return 0;
-  const s = [...vals].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  // Geometric mean of response times in ms (wrongs penalized with
+  // MISS_PENALTY_MS), converted to RPM. Composite quality signal.
+  rpm: number | null;
 }
 
 const cells = computed(() => {
-  const grid: Cell[][] = [];
-  for (let a = 0; a <= 12; a++) {
-    grid[a] = [];
-    for (let b = 0; b <= 12; b++) {
-      grid[a][b] = { a, b, count: 0, correct: 0, medianMs: 0 };
-    }
-  }
-  const bucket: number[][][] = Array.from({ length: 13 }, () =>
+  const grid: Cell[][] = Array.from({ length: 13 }, (_, a) =>
+    Array.from({ length: 13 }, (_, b) => ({ a, b, count: 0, correct: 0, rpm: null as number | null })),
+  );
+  const timesByCell: number[][][] = Array.from({ length: 13 }, () =>
     Array.from({ length: 13 }, () => []),
   );
   for (const e of props.events) {
@@ -38,34 +30,51 @@ const cells = computed(() => {
     c.count++;
     if (e.is_correct && !e.is_timeout) {
       c.correct++;
-      bucket[a][b].push(e.response_time_ms);
+      timesByCell[a][b].push(Math.max(1, e.response_time_ms));
+    } else {
+      timesByCell[a][b].push(MISS_PENALTY_MS);
     }
   }
   for (let a = 0; a <= 12; a++) {
     for (let b = 0; b <= 12; b++) {
-      grid[a][b].medianMs = median(bucket[a][b]);
+      const times = timesByCell[a][b];
+      if (times.length === 0) continue;
+      const logSum = times.reduce((s, t) => s + Math.log(t), 0);
+      const gmMs = Math.exp(logSum / times.length);
+      grid[a][b].rpm = 60_000 / gmMs;
     }
   }
   return grid;
 });
 
+// Normalize the color gradient against the range actually present in the
+// data — so the *worst* cell is always pure red, not some washed-out amber.
+const scoreRange = computed(() => {
+  const scores: number[] = [];
+  for (let a = 0; a <= 12; a++) {
+    for (let b = 0; b <= 12; b++) {
+      const r = cells.value[a][b].rpm;
+      if (r !== null) scores.push(r);
+    }
+  }
+  if (scores.length === 0) return { min: 0, max: 1 };
+  return { min: Math.min(...scores), max: Math.max(...scores) };
+});
+
 function cellColor(c: Cell): string {
-  if (c.count === 0) return 'rgba(255,255,255,0.03)';
-  const acc = c.correct / c.count;
-  // hue: red (0) -> green (130)
-  const hue = Math.round(acc * 130);
-  // lightness: faster correct = brighter. medianMs 500→70% 6000→25%
-  const lightness = c.medianMs === 0
-    ? 25
-    : Math.max(25, Math.min(70, 80 - (c.medianMs / 6000) * 55));
-  return `hsl(${hue} 70% ${lightness}%)`;
+  if (c.rpm === null) return 'rgba(255, 255, 255, 0.03)';
+  const { min, max } = scoreRange.value;
+  const frac = max === min ? 1 : (c.rpm - min) / (max - min);
+  // hue: 0 = red (worst), 130 = green (best).
+  const hue = Math.round(frac * 130);
+  return `hsl(${hue} 78% 55%)`;
 }
 
 function cellTitle(c: Cell): string {
   if (c.count === 0) return `${c.a} × ${c.b} — no data`;
   const acc = ((c.correct / c.count) * 100).toFixed(0);
-  const med = c.medianMs ? `${Math.round(c.medianMs)} ms` : '—';
-  return `${c.a} × ${c.b} = ${c.a * c.b}\n${c.correct}/${c.count} correct (${acc}%)\nmedian ${med}`;
+  const rpm = c.rpm !== null ? `${c.rpm.toFixed(1)} RPM` : '—';
+  return `${c.a} × ${c.b} = ${c.a * c.b}\n${c.correct}/${c.count} correct (${acc}%)\nGM ${rpm}`;
 }
 </script>
 
@@ -124,7 +133,7 @@ function cellTitle(c: Cell): string {
   height: 34px;
   text-align: center;
   border-radius: 3px;
-  color: rgba(10, 14, 26, 0.8);
+  color: rgba(10, 14, 26, 0.85);
   font-weight: 600;
   position: relative;
   cursor: default;
