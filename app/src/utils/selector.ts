@@ -1,76 +1,195 @@
-import { QUESTION_CATALOG, type Question } from '../types/question';
-import type { AnswerEvent } from '../types/answerEvent';
+// FSRS-lite: per-card memory state + small shared parameter vector.
+// The selector scores every card with a two-term "expected reward":
+//   α · discovery   + β · fill_potential
+// where α = 1 - findHolesVsReinforce, β = findHolesVsReinforce.
+// These match the two reward components from the design notes:
+//   1) discovery: show cards where the user's recent baseline is low
+//   2) fill: reward for re-showing a card we might improve on;
+//      scales with (1 - baseline) × (time since last attempt / stability)
+//
+// Params are fixed for now but structured so we can later fit them
+// online from real rewards (e.g., per-answer regret reduction).
 
-interface CardStat {
-  seen: number;
-  correctRate: number;
-  avgMs: number;
-  lastSeenIdx: number;
+import { QUESTION_CATALOG, type Question } from '../types/question';
+import type { AnswerEvent, SpeedTier } from '../types/answerEvent';
+import { classifyTier } from '../types/answerEvent';
+
+export const TIER_SCORE: Record<SpeedTier, number> = {
+  instant: 1.0,
+  fast: 0.7,
+  slow: 0.35,
+  miss: 0.0,
+};
+
+export interface FsrsParams {
+  findHolesVsReinforce: number; // 0 = all discovery, 1 = all fill
+  baselineWindow: number; // how many recent attempts on a card count toward baseline
+  initialStabilityMs: number; // before any attempts
+  stabilityGrowthPerQuality: number; // S *= 1 + growth · score on correct
+  stabilityMissFactor: number; // S *= this on miss
+  difficultyAdjust: number; // how fast difficulty moves per attempt
+  softmaxTemperature: number; // exploration temperature for the selector
+  coldStartBoost: number; // expected-reward bonus for unseen cards
 }
 
-function computeStats(events: AnswerEvent[]): Map<string, CardStat> {
-  const stats = new Map<string, CardStat>();
-  events.forEach((e, i) => {
-    const existing = stats.get(e.question_uuid) ?? {
-      seen: 0,
-      correctRate: 0,
-      avgMs: 0,
-      lastSeenIdx: -1,
-    };
-    const seen = existing.seen + 1;
-    const correctRate =
-      (existing.correctRate * existing.seen + (e.is_correct ? 1 : 0)) / seen;
-    const avgMs =
-      (existing.avgMs * existing.seen +
-        (e.is_correct ? e.response_time_ms : 10_000)) /
-      seen;
-    stats.set(e.question_uuid, { seen, correctRate, avgMs, lastSeenIdx: i });
-  });
-  return stats;
+export const DEFAULT_PARAMS: FsrsParams = {
+  findHolesVsReinforce: 0.5,
+  baselineWindow: 5,
+  initialStabilityMs: 45_000,
+  stabilityGrowthPerQuality: 0.9,
+  stabilityMissFactor: 0.4,
+  difficultyAdjust: 0.15,
+  softmaxTemperature: 0.25,
+  coldStartBoost: 0.15,
+};
+
+export interface CardState {
+  seen: number;
+  lastSeenAt: number | null; // epoch ms
+  baselineScore: number; // 0..1 rolling over baselineWindow
+  stability: number; // ms
+  difficulty: number; // 0..1
+  recentScores: number[];
+}
+
+export function initialState(): CardState {
+  return {
+    seen: 0,
+    lastSeenAt: null,
+    baselineScore: 0,
+    stability: 0,
+    difficulty: 0.3,
+    recentScores: [],
+  };
+}
+
+export function applyAnswer(
+  state: CardState,
+  event: AnswerEvent,
+  params: FsrsParams = DEFAULT_PARAMS,
+): CardState {
+  const tier: SpeedTier = classifyTier(event);
+  const score = TIER_SCORE[tier];
+
+  const recent = [...state.recentScores, score].slice(-params.baselineWindow);
+  const baseline = recent.reduce((a, b) => a + b, 0) / recent.length;
+
+  let stability = state.stability;
+  if (stability <= 0) {
+    stability = params.initialStabilityMs * (0.6 + score);
+  } else if (tier === 'miss') {
+    stability *= params.stabilityMissFactor;
+  } else {
+    stability *= 1 + params.stabilityGrowthPerQuality * score;
+  }
+  const DAY = 24 * 3600_000;
+  stability = Math.max(5_000, Math.min(30 * DAY, stability));
+
+  const dDelta =
+    tier === 'miss'
+      ? params.difficultyAdjust
+      : -params.difficultyAdjust * score;
+  const difficulty = Math.max(0, Math.min(1, state.difficulty + dDelta));
+
+  const ts = Date.parse(event.timestamp);
+  return {
+    seen: state.seen + 1,
+    lastSeenAt: Number.isNaN(ts) ? Date.now() : ts,
+    baselineScore: baseline,
+    stability,
+    difficulty,
+    recentScores: recent,
+  };
+}
+
+export function computeStates(
+  events: AnswerEvent[],
+  params: FsrsParams = DEFAULT_PARAMS,
+): Map<string, CardState> {
+  const map = new Map<string, CardState>();
+  for (const e of events) {
+    const cur = map.get(e.question_uuid) ?? initialState();
+    map.set(e.question_uuid, applyAnswer(cur, e, params));
+  }
+  return map;
+}
+
+export function retrievability(state: CardState, now: number): number {
+  if (state.seen === 0 || state.lastSeenAt == null || state.stability <= 0) {
+    return 0.05;
+  }
+  const elapsed = Math.max(0, now - state.lastSeenAt);
+  return Math.exp(-elapsed / state.stability);
+}
+
+export interface RewardBreakdown {
+  discovery: number;
+  fill: number;
+  total: number;
+}
+
+export function expectedReward(
+  state: CardState | undefined,
+  now: number,
+  params: FsrsParams = DEFAULT_PARAMS,
+): RewardBreakdown {
+  const alpha = 1 - params.findHolesVsReinforce;
+  const beta = params.findHolesVsReinforce;
+
+  if (!state || state.seen === 0) {
+    // Cold start: maximum discovery, high fill (time-since is "forever").
+    const discovery = 1 + params.coldStartBoost;
+    const fill = 1;
+    return { discovery, fill, total: alpha * discovery + beta * fill };
+  }
+
+  const headroom = 1 - state.baselineScore; // room to improve
+  const elapsed = state.lastSeenAt == null ? 0 : Math.max(0, now - state.lastSeenAt);
+  const due = Math.min(3, elapsed / Math.max(1, state.stability));
+  // Discovery: weight headroom by difficulty so harder cards feel more worth probing.
+  const discovery = headroom * (0.5 + 0.5 * state.difficulty);
+  // Fill: potential improvement (headroom) scaled by how "due" it is.
+  const fill = headroom * due;
+  return { discovery, fill, total: alpha * discovery + beta * fill };
 }
 
 export interface SelectorOptions {
-  exploreVsExploit: number; // 0 = pure explore (uniform), 1 = pure exploit (hardest cards)
-  avoid: Set<string>;
+  avoid?: Set<string>;
   rng?: () => number;
+  params?: FsrsParams;
 }
 
 export function selectNextCard(
   history: AnswerEvent[],
-  opts: Partial<SelectorOptions> = {},
+  opts: SelectorOptions = {},
 ): Question {
-  const { exploreVsExploit = 0.55, avoid = new Set<string>(), rng = Math.random } = opts;
-  const stats = computeStats(history);
-  const weights: number[] = [];
-  const pool: Question[] = [];
+  const params = opts.params ?? DEFAULT_PARAMS;
+  const avoid = opts.avoid ?? new Set<string>();
+  const rng = opts.rng ?? Math.random;
+  const states = computeStates(history, params);
+  const now = Date.now();
 
-  QUESTION_CATALOG.forEach((q) => {
-    if (avoid.has(q.uuid)) return;
-    const s = stats.get(q.uuid);
-    let difficulty: number;
-    if (!s) {
-      difficulty = 0.7; // unseen cards: lean toward showing them
-    } else {
-      // slower + less-correct = harder = higher weight
-      const speedScore = Math.min(1, s.avgMs / 6000);
-      const wrongScore = 1 - s.correctRate;
-      difficulty = 0.5 * wrongScore + 0.5 * speedScore;
-    }
-    // recency bonus: cards not seen recently get a boost
-    const recency = s ? Math.min(1, (history.length - s.lastSeenIdx) / 30) : 1;
-    const explore = 0.3 + 0.7 * recency;
-    const weight = (1 - exploreVsExploit) * explore + exploreVsExploit * (0.2 + difficulty);
-    weights.push(Math.max(0.01, weight));
-    pool.push(q);
-  });
-
-  const total = weights.reduce((a, b) => a + b, 0);
-  let r = rng() * total;
-  for (let i = 0; i < pool.length; i++) {
-    r -= weights[i];
-    if (r <= 0) return pool[i];
+  const scored: { q: Question; score: number }[] = [];
+  for (const q of QUESTION_CATALOG) {
+    if (avoid.has(q.uuid)) continue;
+    const { total } = expectedReward(states.get(q.uuid), now, params);
+    scored.push({ q, score: total });
   }
-  return pool[pool.length - 1];
+
+  // Softmax weighted sample (temperature controls exploration).
+  const temp = Math.max(0.05, params.softmaxTemperature);
+  const maxScore = scored.reduce((m, s) => Math.max(m, s.score), -Infinity);
+  const weights = scored.map((s) => Math.exp((s.score - maxScore) / temp));
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (!isFinite(total) || total <= 0) {
+    return scored[Math.floor(rng() * scored.length)].q;
+  }
+  let r = rng() * total;
+  for (let i = 0; i < scored.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return scored[i].q;
+  }
+  return scored[scored.length - 1].q;
 }
 
 export interface Difficulty {
