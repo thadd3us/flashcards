@@ -12,6 +12,9 @@ const props = withDefaults(
   defineProps<{
     curves?: CurveSpec[]; // when supplied, replaces the default correct/wrong split
     events?: AnswerEvent[]; // legacy single-series usage
+    // When true, wrong answers are folded into each curve at rate = 0 Hz (left edge).
+    // This mirrors the earlier "long-time tail" behavior but reciprocated: a wrong
+    // answer is "0 Hz" since the user didn't complete it.
     wrongsAsTail?: boolean;
   }>(),
   { wrongsAsTail: false },
@@ -23,14 +26,13 @@ const PAD_L = 50;
 const PAD_R = 22;
 const PAD_T = 16;
 const PAD_B = 36;
-const TAIL_FRAC = 0.06; // wrong answers pile up here, past the plotted x range
 
 interface Point {
   x: number;
   y: number;
-  ms: number;
+  hz: number;
   event: AnswerEvent;
-  isWrongTail?: boolean;
+  isWrongBucket?: boolean;
 }
 
 const derivedCurves = computed<CurveSpec[]>(() => {
@@ -53,96 +55,105 @@ const derivedCurves = computed<CurveSpec[]>(() => {
   ];
 });
 
-const xMax = computed(() => {
-  const correct = derivedCurves.value.flatMap((c) =>
-    c.events.filter((e) => e.is_correct && !e.is_timeout).map((e) => e.response_time_ms),
+function rateHz(e: AnswerEvent): number {
+  return 1000 / Math.max(1, e.response_time_ms);
+}
+
+// Pick a pleasing xMax in Hz: up to 25 % above the p95 correct rate, with
+// sensible floors/ceilings.
+const xMaxHz = computed(() => {
+  const correctRates = derivedCurves.value.flatMap((c) =>
+    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
   );
-  if (correct.length === 0) return 6_000;
-  const sorted = [...correct].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 6_000;
-  return Math.max(2_000, Math.min(15_000, p95 * 1.25));
+  if (correctRates.length === 0) return 2;
+  const sorted = [...correctRates].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 2;
+  return Math.max(1, Math.min(10, p95 * 1.25));
 });
 
 function plotWidth() {
   return W - PAD_L - PAD_R;
 }
 
-function msToX(ms: number): number {
-  return PAD_L + Math.min(1, ms / xMax.value) * plotWidth();
+function hzToX(hz: number): number {
+  return PAD_L + Math.min(1, Math.max(0, hz / xMaxHz.value)) * plotWidth();
 }
 
 function fracToY(f: number): number {
   return H - PAD_B - f * (H - PAD_T - PAD_B);
 }
 
-function tailX(): number {
-  return PAD_L + (1 + TAIL_FRAC) * plotWidth();
-}
-
 function buildCurve(spec: CurveSpec): Point[] {
   const evts = spec.events;
   if (evts.length === 0) return [];
+
+  // In wrongsAsTail mode, wrongs collapse to rate = 0 (left edge); correct
+  // answers keep their actual rate. In split mode, each curve uses the actual
+  // rate of its events.
   const wrongs = props.wrongsAsTail
     ? evts.filter((e) => !e.is_correct || e.is_timeout)
     : [];
   const corrects = props.wrongsAsTail
     ? evts.filter((e) => e.is_correct && !e.is_timeout)
     : evts;
-  const sortedCorrect = [...corrects].sort(
-    (a, b) => a.response_time_ms - b.response_time_ms,
-  );
+  const sortedCorrect = [...corrects].sort((a, b) => rateHz(a) - rateHz(b));
   const total = sortedCorrect.length + wrongs.length;
   if (total === 0) return [];
 
   const pts: Point[] = [];
-  pts.push({ x: PAD_L, y: fracToY(0), ms: 0, event: sortedCorrect[0] ?? wrongs[0] });
 
+  // CDF starts at (0 Hz, 0).
+  pts.push({
+    x: hzToX(0),
+    y: fracToY(0),
+    hz: 0,
+    event: sortedCorrect[0] ?? wrongs[0],
+  });
+
+  // Wrongs (if folded in) stack at rate = 0 as a vertical jump.
+  if (props.wrongsAsTail && wrongs.length > 0) {
+    const x0 = hzToX(0);
+    wrongs.forEach((e, i) => {
+      pts.push({
+        x: x0,
+        y: fracToY((i + 1) / total),
+        hz: 0,
+        event: e,
+        isWrongBucket: true,
+      });
+    });
+  }
+
+  // Then correct rates ascending as a step function.
+  const offset = wrongs.length;
   sortedCorrect.forEach((e, i) => {
-    const x = msToX(e.response_time_ms);
-    // step: horizontal to this x at previous frac, then vertical up to new frac
+    const x = hzToX(rateHz(e));
+    // horizontal at the previous cumulative frac, then vertical up.
     pts.push({
       x,
-      y: fracToY(i / total),
-      ms: e.response_time_ms,
+      y: fracToY((offset + i) / total),
+      hz: rateHz(e),
       event: e,
     });
     pts.push({
       x,
-      y: fracToY((i + 1) / total),
-      ms: e.response_time_ms,
+      y: fracToY((offset + i + 1) / total),
+      hz: rateHz(e),
       event: e,
     });
   });
 
-  if (props.wrongsAsTail && wrongs.length > 0) {
-    // horizontal from last correct to the tail bucket, then rise for each wrong.
-    const baseFrac = sortedCorrect.length / total;
-    const tail = tailX();
-    pts.push({
-      x: tail,
-      y: fracToY(baseFrac),
-      ms: xMax.value,
-      event: wrongs[0],
-      isWrongTail: true,
-    });
-    wrongs.forEach((e, i) => {
-      pts.push({
-        x: tail,
-        y: fracToY((sortedCorrect.length + i + 1) / total),
-        ms: xMax.value,
-        event: e,
-        isWrongTail: true,
-      });
-    });
-  } else if (sortedCorrect.length > 0) {
-    // trail horizontally to right edge for visual completeness
+  // Trail to right edge.
+  if (sortedCorrect.length > 0) {
+    const last = sortedCorrect[sortedCorrect.length - 1];
     pts.push({
       x: W - PAD_R,
-      y: fracToY(sortedCorrect.length / total),
-      ms: xMax.value,
-      event: sortedCorrect[sortedCorrect.length - 1],
+      y: fracToY(total / total),
+      hz: rateHz(last),
+      event: last,
     });
   }
+
   return pts;
 }
 
@@ -176,14 +187,28 @@ function onMove(e: MouseEvent) {
   hover.value = bestD < 400 ? best : null;
 }
 
-function ticksX(): number[] {
-  const step = xMax.value > 8000 ? 2000 : 1000;
+function ticksHz(): number[] {
+  const xm = xMaxHz.value;
+  // Pick a step that gives ~5 ticks.
+  const candidates = [0.25, 0.5, 1, 2, 5];
+  let step = candidates[0];
+  for (const c of candidates) {
+    if (xm / c <= 6) {
+      step = c;
+      break;
+    }
+    step = c;
+  }
   const out: number[] = [];
-  for (let v = 0; v <= xMax.value; v += step) out.push(v);
+  for (let v = 0; v <= xm + 1e-9; v += step) out.push(Number(v.toFixed(4)));
   return out;
 }
 
-const tailLabelX = computed(() => tailX());
+function formatHzTick(hz: number): string {
+  if (hz === 0) return '0';
+  if (hz >= 1) return hz.toFixed(hz >= 10 ? 0 : hz % 1 === 0 ? 0 : 1);
+  return hz.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
 </script>
 
 <template>
@@ -194,7 +219,7 @@ const tailLabelX = computed(() => tailX());
         <span class="label">{{ c.label }}</span>
       </template>
       <span v-if="wrongsAsTail" class="tail-note mono-caps">
-        wrongs → right tail
+        wrongs = 0 Hz (left)
       </span>
     </div>
     <svg
@@ -211,9 +236,9 @@ const tailLabelX = computed(() => tailX());
           :y1="H - PAD_B - v * (H - PAD_T - PAD_B)"
           :y2="H - PAD_B - v * (H - PAD_T - PAD_B)"
         />
-        <line v-for="t in ticksX()" :key="'x' + t"
-          :x1="PAD_L + (t / xMax) * (W - PAD_L - PAD_R)"
-          :x2="PAD_L + (t / xMax) * (W - PAD_L - PAD_R)"
+        <line v-for="t in ticksHz()" :key="'x' + t"
+          :x1="hzToX(t)"
+          :x2="hzToX(t)"
           :y1="PAD_T"
           :y2="H - PAD_B"
         />
@@ -222,25 +247,16 @@ const tailLabelX = computed(() => tailX());
       <g class="axes">
         <line :x1="PAD_L" :y1="H - PAD_B" :x2="W - PAD_R" :y2="H - PAD_B" />
         <line :x1="PAD_L" :y1="PAD_T" :x2="PAD_L" :y2="H - PAD_B" />
-        <text v-for="t in ticksX()" :key="'tx' + t"
-          :x="PAD_L + (t / xMax) * (W - PAD_L - PAD_R)"
+        <text v-for="t in ticksHz()" :key="'tx' + t"
+          :x="hzToX(t)"
           :y="H - PAD_B + 14"
           text-anchor="middle"
-        >{{ (t / 1000).toFixed(1) }}s</text>
+        >{{ formatHzTick(t) }}Hz</text>
         <text v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="'ty' + v"
           :x="PAD_L - 8"
           :y="H - PAD_B - v * (H - PAD_T - PAD_B) + 4"
           text-anchor="end"
         >{{ Math.round(v * 100) }}%</text>
-        <g v-if="wrongsAsTail">
-          <line class="tail-divider"
-            :x1="W - PAD_R" :x2="W - PAD_R"
-            :y1="PAD_T" :y2="H - PAD_B"
-          />
-          <text class="tail-label"
-            :x="tailLabelX - 4" :y="H - PAD_B + 14" text-anchor="end"
-          >wrong</text>
-        </g>
       </g>
 
       <path v-for="c in curveData" :key="c.spec.label + '-curve'"
@@ -258,7 +274,8 @@ const tailLabelX = computed(() => tailX());
       <div>{{ hover.event.question.content }} = {{ hover.event.question.answer }}</div>
       <div>Submitted: {{ hover.event.answer_submitted ?? '—' }}</div>
       <div>
-        {{ hover.isWrongTail ? '— (wrong)' : `${Math.round(hover.ms)} ms` }} ·
+        {{ hover.isWrongBucket ? '0 Hz (wrong)' : `${hover.hz.toFixed(2)} Hz` }} ·
+        {{ Math.round(hover.event.response_time_ms) }} ms ·
         {{ hover.event.is_correct ? 'correct' : 'wrong' }}
       </div>
     </div>
@@ -323,14 +340,6 @@ const tailLabelX = computed(() => tailX());
 }
 .axes text {
   fill: var(--text-dim);
-  font-size: 10px;
-}
-.tail-divider {
-  stroke: rgba(247, 118, 142, 0.4) !important;
-  stroke-dasharray: 3 3;
-}
-.tail-label {
-  fill: var(--red);
   font-size: 10px;
 }
 .curve {

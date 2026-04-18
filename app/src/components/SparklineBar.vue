@@ -29,7 +29,7 @@ const scoreFmt = computed(() => session.currentProficiency.toFixed(2));
 <template>
   <div class="sparkline" data-testid="sparkline">
     <div class="label">
-      <span class="mono-caps">Proficiency</span>
+      <span class="mono-caps">Proficiency · Hz</span>
       <span class="value glow">{{ scoreFmt }}</span>
     </div>
     <svg :width="WIDTH" :height="HEIGHT" class="spark" role="img">

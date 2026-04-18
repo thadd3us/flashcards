@@ -4,6 +4,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import TimesTableGrid from './TimesTableGrid.vue';
 import CdfPlot from './CdfPlot.vue';
 import type { AnswerEvent } from '../types/answerEvent';
+import { geometricMean } from '../utils/scoring';
 
 const session = useSessionStore();
 
@@ -92,12 +93,15 @@ const accuracy = computed(() =>
     ? '—'
     : ((correctCount.value / totalCount.value) * 100).toFixed(1) + '%',
 );
-const avgMs = computed(() => {
+const avgHz = computed(() => {
   const arr = filtered.value.filter((e) => e.is_correct && !e.is_timeout);
   if (arr.length === 0) return '—';
-  return (
-    Math.round(arr.reduce((a, e) => a + e.response_time_ms, 0) / arr.length) + ' ms'
-  );
+  // Geometric mean in ms, reciprocated to Hz. Invariant: GM(1/x) = 1/GM(x),
+  // so averaging in seconds-then-reciprocating gives the same answer as
+  // averaging rates directly.
+  const gmMs = geometricMean(arr.map((e) => Math.max(1, e.response_time_ms)));
+  if (gmMs <= 0) return '—';
+  return (1000 / gmMs).toFixed(2) + ' Hz';
 });
 </script>
 
@@ -125,7 +129,7 @@ const avgMs = computed(() => {
           <span class="mono-caps">Accuracy</span><span class="v">{{ accuracy }}</span>
         </div>
         <div class="kpi">
-          <span class="mono-caps">Avg Time</span><span class="v">{{ avgMs }}</span>
+          <span class="mono-caps">Avg Rate</span><span class="v">{{ avgHz }}</span>
         </div>
       </div>
     </div>
@@ -133,7 +137,7 @@ const avgMs = computed(() => {
       <TimesTableGrid :events="filtered" />
       <div class="cdf-col">
         <div class="cdf-head panel">
-          <span class="mono-caps">Response Time CDF</span>
+          <span class="mono-caps">Answer Rate CDF (Hz)</span>
           <div class="compare-toggle">
             <button
               class="win-btn"

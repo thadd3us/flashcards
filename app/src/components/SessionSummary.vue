@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useSessionStore } from '../stores/sessionStore';
+import { geometricMean } from '../utils/scoring';
 
 const session = useSessionStore();
 
@@ -9,10 +10,12 @@ const correct = computed(
   () => events.value.filter((e) => e.is_correct && !e.is_timeout).length,
 );
 const total = computed(() => events.value.length);
-const avgMs = computed(() => {
+const avgHz = computed(() => {
   const c = events.value.filter((e) => e.is_correct && !e.is_timeout);
-  if (c.length === 0) return 0;
-  return Math.round(c.reduce((a, e) => a + e.response_time_ms, 0) / c.length);
+  if (c.length === 0) return '—';
+  const gmMs = geometricMean(c.map((e) => Math.max(1, e.response_time_ms)));
+  if (gmMs <= 0) return '—';
+  return (1000 / gmMs).toFixed(2);
 });
 const slowest = computed(() => {
   const c = events.value.filter((e) => e.is_correct && !e.is_timeout);
@@ -30,7 +33,7 @@ const proficiency = computed(() => session.currentProficiency.toFixed(2));
       <h1 class="glow">{{ session.username ?? 'Operator' }}</h1>
       <div class="stats">
         <div class="stat">
-          <span class="mono-caps">Proficiency</span><span class="v">{{ proficiency }}</span>
+          <span class="mono-caps">Proficiency (Hz)</span><span class="v">{{ proficiency }}</span>
         </div>
         <div class="stat">
           <span class="mono-caps">Answers</span><span class="v">{{ total }}</span>
@@ -39,7 +42,7 @@ const proficiency = computed(() => session.currentProficiency.toFixed(2));
           <span class="mono-caps">Correct</span><span class="v">{{ correct }}</span>
         </div>
         <div class="stat">
-          <span class="mono-caps">Avg ms</span><span class="v">{{ avgMs || '—' }}</span>
+          <span class="mono-caps">Avg Rate (Hz)</span><span class="v">{{ avgHz }}</span>
         </div>
         <div class="stat">
           <span class="mono-caps">Best Combo</span><span class="v">×{{ bestCombo }}</span>
