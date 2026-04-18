@@ -100,9 +100,9 @@ function wrongBucketX(): number {
 }
 
 function hzToX(hz: number): number {
-  const lo = Math.log2(xMinHz.value);
-  const hi = Math.log2(xMaxHz.value);
-  const v = Math.log2(Math.max(xMinHz.value, hz));
+  const lo = Math.log10(xMinHz.value);
+  const hi = Math.log10(xMaxHz.value);
+  const v = Math.log10(Math.max(xMinHz.value, hz));
   const frac = (v - lo) / Math.max(1e-6, hi - lo);
   return plotStart() + Math.min(1, Math.max(0, frac)) * plotWidth();
 }
@@ -216,26 +216,44 @@ function onMove(e: MouseEvent) {
   hover.value = bestD < 400 ? best : null;
 }
 
-// Ticks at powers of 2 within the current range. Equal-width on screen, each
-// tick represents a doubling of rate (or halving of response time).
-function ticksHz(): number[] {
+// Major ticks: powers of 10 within the range. Labeled.
+function majorTicksHz(): number[] {
   const min = xMinHz.value;
   const max = xMaxHz.value;
-  const lo = Math.floor(Math.log2(min));
-  const hi = Math.ceil(Math.log2(max));
+  const lo = Math.floor(Math.log10(min));
+  const hi = Math.ceil(Math.log10(max));
   const out: number[] = [];
   for (let k = lo; k <= hi; k++) {
-    const v = Math.pow(2, k);
+    const v = Math.pow(10, k);
     if (v >= min * 0.98 && v <= max * 1.02) out.push(v);
+  }
+  return out;
+}
+
+// Minor ticks: 2× .. 9× each power of 10. Rendered as faint dotted gridlines
+// (no label) — the uneven spacing on screen is what makes the log scale
+// visually obvious.
+function minorTicksHz(): number[] {
+  const min = xMinHz.value;
+  const max = xMaxHz.value;
+  const lo = Math.floor(Math.log10(min));
+  const hi = Math.ceil(Math.log10(max));
+  const out: number[] = [];
+  for (let k = lo; k <= hi; k++) {
+    const base = Math.pow(10, k);
+    for (let n = 2; n <= 9; n++) {
+      const v = n * base;
+      if (v >= min * 0.98 && v <= max * 1.02) out.push(v);
+    }
   }
   return out;
 }
 
 function formatHzTick(hz: number): string {
   if (hz >= 1) return hz.toFixed(0);
-  if (hz >= 0.5) return hz.toFixed(1);
-  if (hz >= 0.1) return hz.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-  return hz.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  if (hz >= 0.1) return hz.toFixed(1);
+  if (hz >= 0.01) return hz.toFixed(2);
+  return hz.toFixed(3);
 }
 </script>
 
@@ -247,7 +265,7 @@ function formatHzTick(hz: number): string {
         <span class="label">{{ c.label }}</span>
       </template>
       <span class="tail-note mono-caps">
-        log₂ Hz · {{ hasWrongBucket ? '0 Hz bucket = wrongs' : 'each tick = doubling' }}
+        log₁₀ Hz{{ hasWrongBucket ? ' · 0 Hz bucket = wrongs' : '' }}
       </span>
     </div>
     <svg
@@ -264,7 +282,18 @@ function formatHzTick(hz: number): string {
           :y1="H - PAD_B - v * (H - PAD_T - PAD_B)"
           :y2="H - PAD_B - v * (H - PAD_T - PAD_B)"
         />
-        <line v-for="t in ticksHz()" :key="'x' + t"
+        <!-- minor ticks: 2..9 within each decade, rendered faint + dotted so
+             the uneven spacing sells the log scale visually. -->
+        <line v-for="t in minorTicksHz()" :key="'mnr' + t"
+          class="minor"
+          :x1="hzToX(t)"
+          :x2="hzToX(t)"
+          :y1="PAD_T"
+          :y2="H - PAD_B"
+        />
+        <!-- major ticks: powers of 10. -->
+        <line v-for="t in majorTicksHz()" :key="'maj' + t"
+          class="major"
           :x1="hzToX(t)"
           :x2="hzToX(t)"
           :y1="PAD_T"
@@ -300,7 +329,7 @@ function formatHzTick(hz: number): string {
           >0Hz</text>
         </template>
 
-        <text v-for="t in ticksHz()" :key="'tx' + t"
+        <text v-for="t in majorTicksHz()" :key="'tx' + t"
           :x="hzToX(t)"
           :y="H - PAD_B + 14"
           text-anchor="middle"
@@ -385,6 +414,15 @@ function formatHzTick(hz: number): string {
 }
 .grid line {
   stroke: rgba(122, 162, 247, 0.08);
+  stroke-width: 1;
+}
+.grid line.minor {
+  stroke: rgba(122, 162, 247, 0.12);
+  stroke-dasharray: 1 3;
+  stroke-width: 1;
+}
+.grid line.major {
+  stroke: rgba(122, 162, 247, 0.22);
   stroke-width: 1;
 }
 .axes line {
