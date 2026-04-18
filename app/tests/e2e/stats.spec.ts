@@ -200,7 +200,7 @@ async function seedHistoryAndBoot(page: Page, username: string) {
     },
     { username, NS },
   );
-  await page.goto('/');
+  await page.goto('/?fast=400');
   // User picker with existing user preselected.
   await expect(page.getByTestId('user-picker')).toBeVisible();
   await page.getByTestId('user-confirm').click();

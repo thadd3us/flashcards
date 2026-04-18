@@ -336,24 +336,20 @@ export function selectNextCard(
 export interface Difficulty {
   scrollSpeedPxPerSec: number;
   laneCount: number;
+  spawnIntervalMs: number;
+  // Target fall time in ms — the store computes scrollSpeedPxPerSec from this
+  // and the measured container height.
+  fallDurationMs: number;
 }
 
-export function estimateDifficulty(history: AnswerEvent[]): Difficulty {
-  if (history.length < 3) {
-    return { scrollSpeedPxPerSec: 55, laneCount: 1 };
-  }
-  const recent = history.slice(-20);
-  const correct = recent.filter((e) => e.is_correct && !e.is_timeout);
-  const accuracy = correct.length / recent.length;
-  const avgMs = correct.length
-    ? correct.reduce((a, e) => a + e.response_time_ms, 0) / correct.length
-    : 6000;
-  const speed = Math.round(
-    Math.max(45, Math.min(200, (300 / Math.max(1, avgMs / 1000)) * accuracy + 40)),
-  );
-  let lanes = 1;
-  if (accuracy >= 0.7 && avgMs < 3500) lanes = 2;
-  if (accuracy >= 0.85 && avgMs < 2000) lanes = 3;
-  if (accuracy >= 0.92 && avgMs < 1200) lanes = 4;
-  return { scrollSpeedPxPerSec: speed, laneCount: lanes };
+// Calibration defaults: one card at a time, 10 s to fall, one spawn every 10 s.
+// Kept deliberately history-insensitive for now so we can tune the core feel
+// without the autopilot fighting us.
+export function estimateDifficulty(_history: AnswerEvent[]): Difficulty {
+  return {
+    scrollSpeedPxPerSec: 60, // overridden by gameStore once container height is known
+    laneCount: 1,
+    spawnIntervalMs: 10_000,
+    fallDurationMs: 10_000,
+  };
 }

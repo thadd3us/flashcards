@@ -128,6 +128,7 @@ function cardStyle(id: string): Record<string, string> {
             :class="{ target: c.id === lowestId, pr: isPr(c) }"
             :style="cardStyle(c.id)"
             :data-testid="`card-${c.question.uuid}`"
+            :data-card-id="c.id"
           >
             <div class="content">{{ c.question.content }} = ?</div>
           </div>
@@ -177,8 +178,10 @@ function cardStyle(id: string): Record<string, string> {
     </div>
 
     <div class="diag mono-caps">
-      Scroll {{ game.difficulty.scrollSpeedPxPerSec }} px/s · Lanes
-      {{ game.difficulty.laneCount }} · Combo {{ session.combo }}
+      Lanes {{ game.difficulty.laneCount }} ·
+      Fall {{ (game.difficulty.fallDurationMs / 1000).toFixed(0) }}s ·
+      Spawn every {{ (game.difficulty.spawnIntervalMs / 1000).toFixed(0) }}s ·
+      Combo {{ session.combo }}
     </div>
   </div>
 </template>

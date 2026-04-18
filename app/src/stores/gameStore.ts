@@ -18,17 +18,47 @@ interface State {
   difficulty: Difficulty;
   containerHeight: number;
   nextIdCounter: number;
-  laneSpawnNext: number; // round-robin lane index for spawning
+  lastSpawnAt: number; // performance.now() of the most recent spawn (per any lane)
+}
+
+// Cards fall across (containerHeight - MISS_ZONE_PX) over difficulty.fallDurationMs.
+const MISS_ZONE_PX = 72;
+
+const DEFAULT_SPAWN_MS = 10_000;
+const DEFAULT_FALL_MS = 10_000;
+
+// `?fast=<ms>` URL override — used by Playwright tests so they don't have to
+// wait the full 10 s between cards. Invalid / missing → real defaults.
+function readUrlOverride(): { spawn: number; fall: number } {
+  if (typeof window === 'undefined') {
+    return { spawn: DEFAULT_SPAWN_MS, fall: DEFAULT_FALL_MS };
+  }
+  const p = new URLSearchParams(window.location.search).get('fast');
+  const n = p ? parseInt(p, 10) : NaN;
+  if (!Number.isFinite(n) || n < 100) {
+    return { spawn: DEFAULT_SPAWN_MS, fall: DEFAULT_FALL_MS };
+  }
+  return { spawn: n, fall: n };
+}
+
+function defaultDifficulty(): Difficulty {
+  const o = readUrlOverride();
+  return {
+    scrollSpeedPxPerSec: 60,
+    laneCount: 1,
+    spawnIntervalMs: o.spawn,
+    fallDurationMs: o.fall,
+  };
 }
 
 export const useGameStore = defineStore('game', {
   state: (): State => ({
     paused: false,
     cards: [],
-    difficulty: { scrollSpeedPxPerSec: 40, laneCount: 1 },
+    difficulty: defaultDifficulty(),
     containerHeight: 600,
     nextIdCounter: 0,
-    laneSpawnNext: 0,
+    lastSpawnAt: -Infinity,
   }),
   getters: {
     lowestCard(state): ActiveCard | null {
@@ -47,7 +77,16 @@ export const useGameStore = defineStore('game', {
   },
   actions: {
     setContainerHeight(h: number) {
+      if (h === this.containerHeight) return;
       this.containerHeight = h;
+      this.recalibrateSpeed();
+    },
+    recalibrateSpeed() {
+      const travelPx = Math.max(200, this.containerHeight - MISS_ZONE_PX);
+      this.difficulty = {
+        ...this.difficulty,
+        scrollSpeedPxPerSec: travelPx / (this.difficulty.fallDurationMs / 1000),
+      };
     },
     setPanic(on: boolean) {
       if (on) {
@@ -56,9 +95,19 @@ export const useGameStore = defineStore('game', {
     },
     updateDifficulty() {
       const session = useSessionStore();
+      // estimateDifficulty is currently history-insensitive and returns
+      // calibration defaults. We still call it so we have one place to
+      // re-enable an adaptive ramp later. Panic forces 1 lane regardless.
       const next = estimateDifficulty(session.combinedHistory);
       if (session.panic) next.laneCount = 1;
-      this.difficulty = next;
+      // Preserve URL-overridden spawn/fall on each update.
+      const o = readUrlOverride();
+      this.difficulty = {
+        ...next,
+        spawnIntervalMs: o.spawn,
+        fallDurationMs: o.fall,
+      };
+      this.recalibrateSpeed();
     },
     cardY(card: ActiveCard, now = performance.now()): number {
       return ((now - card.spawnedAt) / 1000) * this.difficulty.scrollSpeedPxPerSec;
@@ -66,29 +115,25 @@ export const useGameStore = defineStore('game', {
     spawnIfNeeded() {
       if (this.paused) return;
       const lanes = this.difficulty.laneCount;
-      // ensure each lane has at least one card, and space cards vertically
-      const byLane = new Map<number, ActiveCard[]>();
-      for (const c of this.cards) {
-        const arr = byLane.get(c.laneIndex) ?? [];
-        arr.push(c);
-        byLane.set(c.laneIndex, arr);
-      }
-      for (let lane = 0; lane < lanes; lane++) {
-        const list = byLane.get(lane) ?? [];
-        if (list.length === 0) {
-          this.spawnOnLane(lane);
-          continue;
-        }
-        // spawn a follow-up if the newest card has traveled >= 180px
-        const newest = list.reduce((a, b) =>
-          a.spawnedAt > b.spawnedAt ? a : b,
-        );
-        if (this.cardY(newest) >= 160) {
-          this.spawnOnLane(lane);
-        }
-      }
-      // remove stale lanes when difficulty drops
+      // Drop cards that belong to a now-disabled lane.
       this.cards = this.cards.filter((c) => c.laneIndex < lanes);
+
+      const now = performance.now();
+      const interval = this.difficulty.spawnIntervalMs;
+      if (now - this.lastSpawnAt < interval) return;
+
+      // Spawn into the first empty lane (round-robin order). Single-lane mode
+      // means "one card at a time"; multi-lane would fill each empty lane
+      // once per interval tick.
+      let spawned = false;
+      for (let lane = 0; lane < lanes; lane++) {
+        const laneHasCard = this.cards.some((c) => c.laneIndex === lane);
+        if (!laneHasCard) {
+          this.spawnOnLane(lane);
+          spawned = true;
+        }
+      }
+      if (spawned) this.lastSpawnAt = now;
     },
     spawnOnLane(lane: number) {
       const session = useSessionStore();
@@ -112,13 +157,16 @@ export const useGameStore = defineStore('game', {
     resumeGame() {
       this.paused = false;
       this.nextIdCounter = 0;
+      this.lastSpawnAt = -Infinity; // spawn immediately on next tick
       this.spawnIfNeeded();
     },
     reset() {
       this.paused = false;
       this.cards = [];
       this.nextIdCounter = 0;
-      this.difficulty = { scrollSpeedPxPerSec: 40, laneCount: 1 };
+      this.lastSpawnAt = -Infinity;
+      this.difficulty = defaultDifficulty();
+      this.recalibrateSpeed();
     },
     async submitAnswer(value: number) {
       if (this.paused) return null;
