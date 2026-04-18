@@ -10,11 +10,11 @@ interface CurveSpec {
 
 const props = withDefaults(
   defineProps<{
-    curves?: CurveSpec[]; // when supplied, replaces the default correct/wrong split
-    events?: AnswerEvent[]; // legacy single-series usage
-    // When true, wrong answers are folded into each curve at rate = 0 Hz (left edge).
-    // This mirrors the earlier "long-time tail" behavior but reciprocated: a wrong
-    // answer is "0 Hz" since the user didn't complete it.
+    curves?: CurveSpec[];
+    events?: AnswerEvent[];
+    // When true, wrongs are folded into each curve at "rate = 0 Hz" and drawn
+    // in a dedicated left-edge strip (separate from the log-scaled correct-rate
+    // region).
     wrongsAsTail?: boolean;
   }>(),
   { wrongsAsTail: false },
@@ -22,10 +22,13 @@ const props = withDefaults(
 
 const W = 560;
 const H = 260;
-const PAD_L = 50;
+const PAD_L = 44;
 const PAD_R = 22;
 const PAD_T = 16;
 const PAD_B = 36;
+// Width of the "wrong / 0 Hz" strip to the left of the log region. Only
+// allocated when any curve contains wrongs + wrongsAsTail is on.
+const WRONG_STRIP = 36;
 
 interface Point {
   x: number;
@@ -59,24 +62,49 @@ function rateHz(e: AnswerEvent): number {
   return 1000 / Math.max(1, e.response_time_ms);
 }
 
-// Pick a pleasing xMax in Hz: up to 25 % above the p95 correct rate, with
-// sensible floors/ceilings.
-const xMaxHz = computed(() => {
-  const correctRates = derivedCurves.value.flatMap((c) =>
-    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
+const hasWrongBucket = computed(() => {
+  if (!props.wrongsAsTail) return false;
+  return derivedCurves.value.some((c) =>
+    c.events.some((e) => !e.is_correct || e.is_timeout),
   );
-  if (correctRates.length === 0) return 2;
-  const sorted = [...correctRates].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 2;
-  return Math.max(1, Math.min(10, p95 * 1.25));
 });
 
-function plotWidth() {
-  return W - PAD_L - PAD_R;
+const xMinHz = computed(() => {
+  const rates = derivedCurves.value.flatMap((c) =>
+    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
+  );
+  if (rates.length === 0) return 0.1;
+  const min = Math.min(...rates);
+  // A little below the slowest observed correct rate, clamped to [0.05, 1] Hz.
+  return Math.max(0.05, Math.min(1, min / 1.3));
+});
+
+const xMaxHz = computed(() => {
+  const rates = derivedCurves.value.flatMap((c) =>
+    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
+  );
+  if (rates.length === 0) return 2;
+  const sorted = [...rates].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 2;
+  return Math.max(1, Math.min(20, p95 * 1.3));
+});
+
+function plotStart(): number {
+  return PAD_L + (hasWrongBucket.value ? WRONG_STRIP : 0);
+}
+function plotWidth(): number {
+  return W - plotStart() - PAD_R;
+}
+function wrongBucketX(): number {
+  return PAD_L + WRONG_STRIP / 2;
 }
 
 function hzToX(hz: number): number {
-  return PAD_L + Math.min(1, Math.max(0, hz / xMaxHz.value)) * plotWidth();
+  const lo = Math.log2(xMinHz.value);
+  const hi = Math.log2(xMaxHz.value);
+  const v = Math.log2(Math.max(xMinHz.value, hz));
+  const frac = (v - lo) / Math.max(1e-6, hi - lo);
+  return plotStart() + Math.min(1, Math.max(0, frac)) * plotWidth();
 }
 
 function fracToY(f: number): number {
@@ -87,9 +115,6 @@ function buildCurve(spec: CurveSpec): Point[] {
   const evts = spec.events;
   if (evts.length === 0) return [];
 
-  // In wrongsAsTail mode, wrongs collapse to rate = 0 (left edge); correct
-  // answers keep their actual rate. In split mode, each curve uses the actual
-  // rate of its events.
   const wrongs = props.wrongsAsTail
     ? evts.filter((e) => !e.is_correct || e.is_timeout)
     : [];
@@ -102,33 +127,38 @@ function buildCurve(spec: CurveSpec): Point[] {
 
   const pts: Point[] = [];
 
-  // CDF starts at (0 Hz, 0).
-  pts.push({
-    x: hzToX(0),
-    y: fracToY(0),
-    hz: 0,
-    event: sortedCorrect[0] ?? wrongs[0],
-  });
-
-  // Wrongs (if folded in) stack at rate = 0 as a vertical jump.
   if (props.wrongsAsTail && wrongs.length > 0) {
-    const x0 = hzToX(0);
+    const xw = wrongBucketX();
+    pts.push({ x: xw, y: fracToY(0), hz: 0, event: wrongs[0], isWrongBucket: true });
     wrongs.forEach((e, i) => {
       pts.push({
-        x: x0,
+        x: xw,
         y: fracToY((i + 1) / total),
         hz: 0,
         event: e,
         isWrongBucket: true,
       });
     });
+    // bridge from the wrong bucket across the divider to plotStart at the
+    // current cumulative fraction.
+    pts.push({
+      x: plotStart(),
+      y: fracToY(wrongs.length / total),
+      hz: xMinHz.value,
+      event: wrongs[wrongs.length - 1],
+    });
+  } else {
+    pts.push({
+      x: plotStart(),
+      y: fracToY(0),
+      hz: xMinHz.value,
+      event: sortedCorrect[0] ?? evts[0],
+    });
   }
 
-  // Then correct rates ascending as a step function.
   const offset = wrongs.length;
   sortedCorrect.forEach((e, i) => {
     const x = hzToX(rateHz(e));
-    // horizontal at the previous cumulative frac, then vertical up.
     pts.push({
       x,
       y: fracToY((offset + i) / total),
@@ -143,12 +173,11 @@ function buildCurve(spec: CurveSpec): Point[] {
     });
   });
 
-  // Trail to right edge.
   if (sortedCorrect.length > 0) {
     const last = sortedCorrect[sortedCorrect.length - 1];
     pts.push({
       x: W - PAD_R,
-      y: fracToY(total / total),
+      y: fracToY(1),
       hz: rateHz(last),
       event: last,
     });
@@ -187,27 +216,26 @@ function onMove(e: MouseEvent) {
   hover.value = bestD < 400 ? best : null;
 }
 
+// Ticks at powers of 2 within the current range. Equal-width on screen, each
+// tick represents a doubling of rate (or halving of response time).
 function ticksHz(): number[] {
-  const xm = xMaxHz.value;
-  // Pick a step that gives ~5 ticks.
-  const candidates = [0.25, 0.5, 1, 2, 5];
-  let step = candidates[0];
-  for (const c of candidates) {
-    if (xm / c <= 6) {
-      step = c;
-      break;
-    }
-    step = c;
-  }
+  const min = xMinHz.value;
+  const max = xMaxHz.value;
+  const lo = Math.floor(Math.log2(min));
+  const hi = Math.ceil(Math.log2(max));
   const out: number[] = [];
-  for (let v = 0; v <= xm + 1e-9; v += step) out.push(Number(v.toFixed(4)));
+  for (let k = lo; k <= hi; k++) {
+    const v = Math.pow(2, k);
+    if (v >= min * 0.98 && v <= max * 1.02) out.push(v);
+  }
   return out;
 }
 
 function formatHzTick(hz: number): string {
-  if (hz === 0) return '0';
-  if (hz >= 1) return hz.toFixed(hz >= 10 ? 0 : hz % 1 === 0 ? 0 : 1);
-  return hz.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  if (hz >= 1) return hz.toFixed(0);
+  if (hz >= 0.5) return hz.toFixed(1);
+  if (hz >= 0.1) return hz.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return hz.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 </script>
 
@@ -218,8 +246,8 @@ function formatHzTick(hz: number): string {
         <span class="sw" :class="c.tone"></span>
         <span class="label">{{ c.label }}</span>
       </template>
-      <span v-if="wrongsAsTail" class="tail-note mono-caps">
-        wrongs = 0 Hz (left)
+      <span class="tail-note mono-caps">
+        log₂ Hz · {{ hasWrongBucket ? '0 Hz bucket = wrongs' : 'each tick = doubling' }}
       </span>
     </div>
     <svg
@@ -231,7 +259,7 @@ function formatHzTick(hz: number): string {
     >
       <g class="grid">
         <line v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="v"
-          :x1="PAD_L"
+          :x1="hasWrongBucket ? PAD_L : plotStart()"
           :x2="W - PAD_R"
           :y1="H - PAD_B - v * (H - PAD_T - PAD_B)"
           :y2="H - PAD_B - v * (H - PAD_T - PAD_B)"
@@ -245,15 +273,40 @@ function formatHzTick(hz: number): string {
       </g>
 
       <g class="axes">
-        <line :x1="PAD_L" :y1="H - PAD_B" :x2="W - PAD_R" :y2="H - PAD_B" />
-        <line :x1="PAD_L" :y1="PAD_T" :x2="PAD_L" :y2="H - PAD_B" />
+        <line :x1="plotStart()" :y1="H - PAD_B" :x2="W - PAD_R" :y2="H - PAD_B" />
+        <line :x1="plotStart()" :y1="PAD_T" :x2="plotStart()" :y2="H - PAD_B" />
+
+        <!-- wrong-bucket strip to the left of the log axis, separated by a
+             dashed divider. Only rendered when any curve has wrongs folded in. -->
+        <template v-if="hasWrongBucket">
+          <line
+            class="tail-divider"
+            :x1="plotStart()"
+            :x2="plotStart()"
+            :y1="PAD_T"
+            :y2="H - PAD_B"
+          />
+          <line
+            :x1="PAD_L"
+            :y1="H - PAD_B"
+            :x2="plotStart()"
+            :y2="H - PAD_B"
+          />
+          <text
+            class="tail-label"
+            :x="wrongBucketX()"
+            :y="H - PAD_B + 14"
+            text-anchor="middle"
+          >0Hz</text>
+        </template>
+
         <text v-for="t in ticksHz()" :key="'tx' + t"
           :x="hzToX(t)"
           :y="H - PAD_B + 14"
           text-anchor="middle"
-        >{{ formatHzTick(t) }}Hz</text>
+        >{{ formatHzTick(t) }}</text>
         <text v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="'ty' + v"
-          :x="PAD_L - 8"
+          :x="PAD_L - 6"
           :y="H - PAD_B - v * (H - PAD_T - PAD_B) + 4"
           text-anchor="end"
         >{{ Math.round(v * 100) }}%</text>
@@ -340,6 +393,14 @@ function formatHzTick(hz: number): string {
 }
 .axes text {
   fill: var(--text-dim);
+  font-size: 10px;
+}
+.tail-divider {
+  stroke: rgba(247, 118, 142, 0.4) !important;
+  stroke-dasharray: 3 3;
+}
+.tail-label {
+  fill: var(--red);
   font-size: 10px;
 }
 .curve {
