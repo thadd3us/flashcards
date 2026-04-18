@@ -1,6 +1,10 @@
 import type { AnswerEvent } from '../types/answerEvent';
 
-export const MISS_PENALTY_MS = 10_000;
+// A wrong / timed-out answer is treated as "took 20 seconds" for averaging —
+// i.e. 3 RPM. That's clearly worse than the slowest legitimate correct answer
+// (which is capped near the 10 s fall duration ≈ 6 RPM), so a single miss
+// visibly drags your GM down and the heatmap cell in the right direction.
+export const MISS_PENALTY_MS = 20_000;
 export const DEFAULT_PROFICIENCY_WINDOW = 50;
 
 export function geometricMean(values: number[]): number {
