@@ -12,6 +12,22 @@ export interface ActiveCard {
   provenance: SelectionProvenance;
 }
 
+// Set while the user is being asked to correctly answer a just-missed card.
+// Gameplay is frozen until they type the right answer.
+export interface CorrectionState {
+  question: Question;
+  answerSubmitted: number | null; // null for timeout
+  isTimeout: boolean;
+  wrongAttempts: number; // how many incorrect tries during the correction
+  // Provenance of the originally-selected card, reused for every correction
+  // event so we can later analyze "how often do we retry this card?"
+  provenance: SelectionProvenance;
+  // performance.now() when the current attempt's stopwatch started. Reset
+  // after each attempt so response_time_ms on each logged correction event
+  // measures that attempt in isolation.
+  attemptStartedAt: number;
+}
+
 interface State {
   paused: boolean;
   cards: ActiveCard[];
@@ -19,6 +35,7 @@ interface State {
   containerHeight: number;
   nextIdCounter: number;
   lastSpawnAt: number; // performance.now() of the most recent spawn (per any lane)
+  correction: CorrectionState | null;
 }
 
 // Cards fall across (containerHeight - MISS_ZONE_PX) over difficulty.fallDurationMs.
@@ -59,6 +76,7 @@ export const useGameStore = defineStore('game', {
     containerHeight: 600,
     nextIdCounter: 0,
     lastSpawnAt: -Infinity,
+    correction: null,
   }),
   getters: {
     lowestCard(state): ActiveCard | null {
@@ -113,7 +131,7 @@ export const useGameStore = defineStore('game', {
       return ((now - card.spawnedAt) / 1000) * this.difficulty.scrollSpeedPxPerSec;
     },
     spawnIfNeeded() {
-      if (this.paused) return;
+      if (this.paused || this.correction) return;
       const lanes = this.difficulty.laneCount;
       // Drop cards that belong to a now-disabled lane.
       this.cards = this.cards.filter((c) => c.laneIndex < lanes);
@@ -146,8 +164,46 @@ export const useGameStore = defineStore('game', {
       this.cards = this.cards.filter((c) => c.id !== id);
     },
     pauseGame() {
+      if (this.correction) return; // correction blocks the pause toggle
       this.paused = true;
       this.cards = [];
+    },
+    enterCorrection(c: Omit<CorrectionState, 'wrongAttempts' | 'attemptStartedAt'>) {
+      this.correction = {
+        ...c,
+        wrongAttempts: 0,
+        attemptStartedAt: performance.now(),
+      };
+      // Clear any other cards on the field; the user will only see the red
+      // correction overlay until they type the right answer.
+      this.cards = [];
+    },
+    // Log each correction attempt (wrong or right) as its own AnswerEvent with
+    // is_correction=true. Returns true if the value matched the answer.
+    async submitCorrection(value: number): Promise<boolean> {
+      if (!this.correction) return false;
+      const session = useSessionStore();
+      const now = performance.now();
+      const responseMs = Math.max(0, now - this.correction.attemptStartedAt);
+      const isCorrect = value === this.correction.question.answer;
+      await session.recordAnswer({
+        question: this.correction.question,
+        responseMs,
+        isCorrect,
+        isTimeout: false,
+        answerSubmitted: value,
+        provenance: this.correction.provenance,
+        isCorrection: true,
+      });
+      if (!isCorrect) {
+        this.correction.wrongAttempts += 1;
+        this.correction.attemptStartedAt = now;
+        return false;
+      }
+      this.correction = null;
+      this.lastSpawnAt = -Infinity; // spawn the next card on the next tick
+      this.updateDifficulty();
+      return true;
     },
     resumeGame() {
       this.paused = false;
@@ -164,7 +220,7 @@ export const useGameStore = defineStore('game', {
       this.recalibrateSpeed();
     },
     async submitAnswer(value: number) {
-      if (this.paused) return null;
+      if (this.paused || this.correction) return null;
       const session = useSessionStore();
       const target = this.lowestCard;
       if (!target) return null;
@@ -180,6 +236,14 @@ export const useGameStore = defineStore('game', {
       });
       this.removeCard(target.id);
       this.updateDifficulty();
+      if (!isCorrect) {
+        this.enterCorrection({
+          question: target.question,
+          answerSubmitted: value,
+          isTimeout: false,
+          provenance: target.provenance,
+        });
+      }
       return { tier: session.lastTier, correct: isCorrect };
     },
     async expireCard(id: string) {
@@ -197,6 +261,12 @@ export const useGameStore = defineStore('game', {
       });
       this.removeCard(id);
       this.updateDifficulty();
+      this.enterCorrection({
+        question: card.question,
+        answerSubmitted: null,
+        isTimeout: true,
+        provenance: card.provenance,
+      });
     },
   },
 });

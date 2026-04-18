@@ -35,6 +35,11 @@ export interface AnswerEvent {
   // Present when the card was chosen by the selector (not spawn-order cold start
   // before we had wiring). Omitted for seeded synthetic history in tests.
   selection_provenance?: SelectionProvenance;
+  // True when the event was recorded during forced-correction mode (after an
+  // initial wrong/timeout on this card). The first wrong/timeout event that
+  // opened the correction has is_correction=false; every retry attempt inside
+  // the overlay — wrong or right — has is_correction=true.
+  is_correction?: boolean;
 }
 
 export type SpeedTier = 'instant' | 'fast' | 'slow' | 'miss';

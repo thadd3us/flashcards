@@ -169,6 +169,7 @@ export const useSessionStore = defineStore('session', {
       isTimeout: boolean;
       answerSubmitted: number | null;
       provenance?: SelectionProvenance;
+      isCorrection?: boolean;
     }) {
       if (!this.username) return;
       const event: AnswerEvent = {
@@ -183,6 +184,7 @@ export const useSessionStore = defineStore('session', {
         answer_submitted: input.answerSubmitted,
         app_version: APP_VERSION,
         selection_provenance: input.provenance,
+        is_correction: input.isCorrection ?? false,
       };
       this.history.push(event);
       try {

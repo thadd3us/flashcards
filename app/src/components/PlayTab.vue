@@ -68,12 +68,21 @@ async function submit() {
   const v = parseInt(typed.value, 10);
   typed.value = '';
   if (Number.isNaN(v)) return;
+  if (game.correction) {
+    const ok = await game.submitCorrection(v);
+    if (!ok) playTierSound('miss');
+    input.value?.focus();
+    return;
+  }
   const result = await game.submitAnswer(v);
   if (result?.tier) playTierSound(result.tier);
+  // On a wrong answer the store entered correction mode; keep focus on the
+  // input so the user can type the corrected answer immediately.
+  if (game.correction) input.value?.focus();
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && !game.correction) {
     e.preventDefault();
     togglePause();
   }
@@ -141,6 +150,30 @@ function cardStyle(id: string): Record<string, string> {
         <div class="paused-text glow">PAUSED</div>
         <button class="primary" @click="togglePause">Resume</button>
       </div>
+
+      <div
+        v-if="game.correction"
+        class="correction-overlay"
+        data-testid="correction"
+      >
+        <div class="correction-label glow">
+          {{ game.correction.isTimeout ? 'MISS' : 'WRONG' }}
+        </div>
+        <div class="correction-question">
+          {{ game.correction.question.content }} = ?
+        </div>
+        <div class="correction-hint mono-caps">
+          Enter the correct answer to continue
+        </div>
+        <div
+          v-if="game.correction.wrongAttempts > 0"
+          class="correction-attempts mono-caps"
+          data-testid="correction-attempts"
+        >
+          {{ game.correction.wrongAttempts }}
+          wrong attempt{{ game.correction.wrongAttempts === 1 ? '' : 's' }}
+        </div>
+      </div>
     </div>
 
     <div class="control-bar panel">
@@ -156,7 +189,8 @@ function cardStyle(id: string): Record<string, string> {
           pattern="[0-9]*"
           autocomplete="off"
           class="answer"
-          placeholder="▓ answer ▓"
+          :class="{ correcting: !!game.correction }"
+          :placeholder="game.correction ? '▓ correct answer ▓' : '▓ answer ▓'"
           data-testid="answer-input"
           :disabled="game.paused"
           @keydown.enter="submit"
@@ -171,7 +205,11 @@ function cardStyle(id: string): Record<string, string> {
         >
           {{ session.panic ? 'Panic ON' : 'Panic' }}
         </button>
-        <button data-testid="pause-btn" @click="togglePause">
+        <button
+          data-testid="pause-btn"
+          :disabled="!!game.correction"
+          @click="togglePause"
+        >
           {{ game.paused ? 'Resume' : 'Pause' }}
         </button>
       </div>
@@ -343,6 +381,52 @@ button.danger.armed {
   justify-content: center;
   gap: 1.5rem;
   z-index: 20;
+}
+.correction-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  z-index: 25;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(247, 118, 142, 0.18), transparent 65%),
+    rgba(10, 14, 26, 0.88);
+  border-top: 2px solid rgba(247, 118, 142, 0.4);
+  border-bottom: 2px solid rgba(247, 118, 142, 0.4);
+  animation: correction-pulse 1.6s ease-in-out infinite;
+}
+@keyframes correction-pulse {
+  0%, 100% { box-shadow: inset 0 0 80px rgba(247, 118, 142, 0.08); }
+  50% { box-shadow: inset 0 0 120px rgba(247, 118, 142, 0.22); }
+}
+.correction-label {
+  color: var(--red);
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  text-shadow: 0 0 24px currentColor;
+}
+.correction-question {
+  font-size: 2.4rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.03em;
+}
+.correction-hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+.correction-attempts {
+  color: var(--red);
+  font-size: 0.8rem;
+}
+.answer.correcting {
+  border-color: var(--red);
+  color: var(--red);
+  box-shadow: 0 0 14px rgba(247, 118, 142, 0.35);
 }
 .paused-text {
   font-size: 3rem;

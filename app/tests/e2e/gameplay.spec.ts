@@ -40,10 +40,17 @@ async function answerCurrent(page: Page, submission: (answer: number) => number)
   const value = submission(answer);
   await page.getByTestId('answer-input').fill(String(value));
   await page.getByTestId('answer-input').press('Enter');
-  // Wait for this specific card instance to be gone (data-card-id is unique per spawn).
   await expect(
     page.locator(`[data-card-id="${cardId}"]`),
   ).toHaveCount(0, { timeout: 2000 });
+  // A wrong answer now opens the correction overlay; type the right answer to
+  // clear it so the caller's next answerCurrent finds a fresh card.
+  if (value !== answer) {
+    await expect(page.getByTestId('correction')).toBeVisible({ timeout: 1000 });
+    await page.getByTestId('answer-input').fill(String(answer));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeHidden({ timeout: 1000 });
+  }
   return { answer, submitted: value, a, b };
 }
 
@@ -73,14 +80,102 @@ test.describe('Times Table Flashcards — gameplay', () => {
     await page.screenshot({ path: `${SHOT_DIR}/02-after-correct.png` });
   });
 
-  test('wrong answer → miss flash + combo resets', async ({ page }) => {
+  test('wrong answer → red correction overlay; must enter correct answer to continue', async ({
+    page,
+  }) => {
     await bootAsUser(page, 'carol');
-    await answerCurrent(page, (a) => a); // one correct first
-    await answerCurrent(page, () => 9999); // then a wrong one
-    await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOT_DIR}/03-miss-flash.png` });
+    // one correct first to get a combo going
+    await answerCurrent(page, (a) => a);
+    // now submit wrong on the current target
+    const card = await nextTargetCard(page);
+    const txt = (await card.innerText()).trim();
+    const m = txt.match(/(\d+)\s*\u00d7\s*(\d+)/)!;
+    const [a, b] = [+m[1], +m[2]];
+    const correct = a * b;
+    await page.getByTestId('answer-input').fill(String(correct + 13));
+    await page.getByTestId('answer-input').press('Enter');
+    // correction overlay should appear and the field should no longer show cards
+    await expect(page.getByTestId('correction')).toBeVisible({ timeout: 1000 });
+    await expect(page.locator('[data-testid^="card-"]')).toHaveCount(0);
+    // combo resets immediately on the wrong answer
     const combo = await page.getByTestId('combo-counter').innerText();
     expect(combo).toMatch(/[×x]\s*0/);
+    await page.screenshot({ path: `${SHOT_DIR}/03-miss-flash.png` });
+    // another wrong answer during correction should stay in correction and bump attempts
+    await page.getByTestId('answer-input').fill(String(correct + 1));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeVisible();
+    await expect(page.getByTestId('correction-attempts')).toContainText('1 wrong');
+    // typing the correct answer clears correction and play resumes
+    await page.getByTestId('answer-input').fill(String(correct));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeHidden({ timeout: 1000 });
+    await expect(page.locator('[data-testid^="card-"]').first()).toBeVisible({
+      timeout: 1000,
+    });
+  });
+
+  test('correction attempts are logged as events with is_correction=true', async ({
+    page,
+  }) => {
+    await bootAsUser(page, 'jules');
+    const card = await nextTargetCard(page);
+    const m = (await card.innerText()).match(/(\d+)\s*\u00d7\s*(\d+)/)!;
+    const correct = +m[1] * +m[2];
+    // Initial wrong to open correction.
+    await page.getByTestId('answer-input').fill(String(correct + 13));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeVisible();
+    // One wrong try during correction.
+    await page.getByTestId('answer-input').fill(String(correct + 1));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction-attempts')).toContainText('1 wrong');
+    // Finally the correct one.
+    await page.getByTestId('answer-input').fill(String(correct));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeHidden();
+
+    const events = await page.evaluate(() => {
+      const raw = localStorage.getItem('flashcards_browser_store_v1');
+      return raw ? JSON.parse(raw).db.events : [];
+    });
+    expect(events.length).toBeGreaterThanOrEqual(3);
+    // The original wrong answer is logged with is_correction unset/false.
+    expect(events[0]).toMatchObject({ is_correct: false, is_correction: false });
+    // Then one wrong correction attempt.
+    expect(events[1]).toMatchObject({ is_correct: false, is_correction: true });
+    // Then the correct correction attempt.
+    expect(events[2]).toMatchObject({ is_correct: true, is_correction: true });
+    // All three share the same question_uuid.
+    const qu = events[0].question_uuid;
+    expect(events[1].question_uuid).toBe(qu);
+    expect(events[2].question_uuid).toBe(qu);
+  });
+
+  test('timeout (card falls off) triggers correction mode', async ({ page }) => {
+    // Use ?fast=500 so a timeout fires within a second or so.
+    await page.addInitScript(() => {
+      const seed = {
+        db: { open: true, path: '/fake/family.flashcards_sqlite', users: [], events: [] },
+        prefs: { db_path: '/fake/family.flashcards_sqlite', last_username: null },
+      };
+      localStorage.setItem('flashcards_browser_store_v1', JSON.stringify(seed));
+    });
+    await page.goto('/?fast=500');
+    await page.getByTestId('user-new-name').fill('iris');
+    await page.getByTestId('user-confirm').click();
+    await expect(page.getByTestId('active-user')).toContainText('iris');
+    const card = await nextTargetCard(page);
+    const txt = (await card.innerText()).trim();
+    const m = txt.match(/(\d+)\s*\u00d7\s*(\d+)/)!;
+    const correct = +m[1] * +m[2];
+    // Do not answer; wait for timeout.
+    await expect(page.getByTestId('correction')).toBeVisible({ timeout: 2000 });
+    await expect(page.getByTestId('correction')).toContainText('MISS');
+    // Typing the correct answer clears it.
+    await page.getByTestId('answer-input').fill(String(correct));
+    await page.getByTestId('answer-input').press('Enter');
+    await expect(page.getByTestId('correction')).toBeHidden({ timeout: 1000 });
   });
 
   test('pause removes all cards, resume spawns fresh', async ({ page }) => {
