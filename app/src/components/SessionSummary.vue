@@ -10,12 +10,12 @@ const correct = computed(
   () => events.value.filter((e) => e.is_correct && !e.is_timeout).length,
 );
 const total = computed(() => events.value.length);
-const avgHz = computed(() => {
+const avgRpm = computed(() => {
   const c = events.value.filter((e) => e.is_correct && !e.is_timeout);
   if (c.length === 0) return '—';
   const gmMs = geometricMean(c.map((e) => Math.max(1, e.response_time_ms)));
   if (gmMs <= 0) return '—';
-  return (1000 / gmMs).toFixed(2);
+  return (60_000 / gmMs).toFixed(1);
 });
 const slowest = computed(() => {
   const c = events.value.filter((e) => e.is_correct && !e.is_timeout);
@@ -23,7 +23,7 @@ const slowest = computed(() => {
   return c.reduce((a, b) => (a.response_time_ms > b.response_time_ms ? a : b));
 });
 const bestCombo = computed(() => session.bestCombo);
-const proficiency = computed(() => session.currentProficiency.toFixed(2));
+const proficiency = computed(() => session.currentProficiency.toFixed(1));
 </script>
 
 <template>
@@ -33,7 +33,7 @@ const proficiency = computed(() => session.currentProficiency.toFixed(2));
       <h1 class="glow">{{ session.username ?? 'Operator' }}</h1>
       <div class="stats">
         <div class="stat">
-          <span class="mono-caps">Proficiency (Hz)</span><span class="v">{{ proficiency }}</span>
+          <span class="mono-caps">Proficiency (RPM)</span><span class="v">{{ proficiency }}</span>
         </div>
         <div class="stat">
           <span class="mono-caps">Answers</span><span class="v">{{ total }}</span>
@@ -42,7 +42,7 @@ const proficiency = computed(() => session.currentProficiency.toFixed(2));
           <span class="mono-caps">Correct</span><span class="v">{{ correct }}</span>
         </div>
         <div class="stat">
-          <span class="mono-caps">Avg Rate (Hz)</span><span class="v">{{ avgHz }}</span>
+          <span class="mono-caps">Avg Rate (RPM)</span><span class="v">{{ avgRpm }}</span>
         </div>
         <div class="stat">
           <span class="mono-caps">Best Combo</span><span class="v">×{{ bestCombo }}</span>

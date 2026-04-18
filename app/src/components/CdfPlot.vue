@@ -12,9 +12,9 @@ const props = withDefaults(
   defineProps<{
     curves?: CurveSpec[];
     events?: AnswerEvent[];
-    // When true, wrongs are folded into each curve at "rate = 0 Hz" and drawn
-    // in a dedicated left-edge strip (separate from the log-scaled correct-rate
-    // region).
+    // When true, wrongs are folded into each curve at "rate = 0 RPM" and
+    // drawn in a dedicated left-edge strip (separate from the log-scaled
+    // correct-rate region).
     wrongsAsTail?: boolean;
   }>(),
   { wrongsAsTail: false },
@@ -22,18 +22,18 @@ const props = withDefaults(
 
 const W = 560;
 const H = 260;
-const PAD_L = 44;
+const PAD_L = 48;
 const PAD_R = 22;
 const PAD_T = 16;
 const PAD_B = 36;
-// Width of the "wrong / 0 Hz" strip to the left of the log region. Only
+// Width of the "wrong / 0 RPM" strip to the left of the log region. Only
 // allocated when any curve contains wrongs + wrongsAsTail is on.
-const WRONG_STRIP = 36;
+const WRONG_STRIP = 40;
 
 interface Point {
   x: number;
   y: number;
-  hz: number;
+  rpm: number;
   event: AnswerEvent;
   isWrongBucket?: boolean;
 }
@@ -58,8 +58,8 @@ const derivedCurves = computed<CurveSpec[]>(() => {
   ];
 });
 
-function rateHz(e: AnswerEvent): number {
-  return 1000 / Math.max(1, e.response_time_ms);
+function rateRpm(e: AnswerEvent): number {
+  return 60_000 / Math.max(1, e.response_time_ms);
 }
 
 const hasWrongBucket = computed(() => {
@@ -69,24 +69,25 @@ const hasWrongBucket = computed(() => {
   );
 });
 
-const xMinHz = computed(() => {
+const xMinRpm = computed(() => {
   const rates = derivedCurves.value.flatMap((c) =>
-    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
+    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateRpm),
   );
-  if (rates.length === 0) return 0.1;
+  if (rates.length === 0) return 6;
   const min = Math.min(...rates);
-  // A little below the slowest observed correct rate, clamped to [0.05, 1] Hz.
-  return Math.max(0.05, Math.min(1, min / 1.3));
+  // A little below the slowest observed correct rate, clamped to [3, 60] RPM
+  // (= response times between 20 s and 1 s).
+  return Math.max(3, Math.min(60, min / 1.3));
 });
 
-const xMaxHz = computed(() => {
+const xMaxRpm = computed(() => {
   const rates = derivedCurves.value.flatMap((c) =>
-    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateHz),
+    c.events.filter((e) => e.is_correct && !e.is_timeout).map(rateRpm),
   );
-  if (rates.length === 0) return 2;
+  if (rates.length === 0) return 120;
   const sorted = [...rates].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 2;
-  return Math.max(1, Math.min(20, p95 * 1.3));
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 120;
+  return Math.max(60, Math.min(1200, p95 * 1.3));
 });
 
 function plotStart(): number {
@@ -99,10 +100,10 @@ function wrongBucketX(): number {
   return PAD_L + WRONG_STRIP / 2;
 }
 
-function hzToX(hz: number): number {
-  const lo = Math.log10(xMinHz.value);
-  const hi = Math.log10(xMaxHz.value);
-  const v = Math.log10(Math.max(xMinHz.value, hz));
+function rpmToX(rpm: number): number {
+  const lo = Math.log10(xMinRpm.value);
+  const hi = Math.log10(xMaxRpm.value);
+  const v = Math.log10(Math.max(xMinRpm.value, rpm));
   const frac = (v - lo) / Math.max(1e-6, hi - lo);
   return plotStart() + Math.min(1, Math.max(0, frac)) * plotWidth();
 }
@@ -121,7 +122,7 @@ function buildCurve(spec: CurveSpec): Point[] {
   const corrects = props.wrongsAsTail
     ? evts.filter((e) => e.is_correct && !e.is_timeout)
     : evts;
-  const sortedCorrect = [...corrects].sort((a, b) => rateHz(a) - rateHz(b));
+  const sortedCorrect = [...corrects].sort((a, b) => rateRpm(a) - rateRpm(b));
   const total = sortedCorrect.length + wrongs.length;
   if (total === 0) return [];
 
@@ -129,46 +130,44 @@ function buildCurve(spec: CurveSpec): Point[] {
 
   if (props.wrongsAsTail && wrongs.length > 0) {
     const xw = wrongBucketX();
-    pts.push({ x: xw, y: fracToY(0), hz: 0, event: wrongs[0], isWrongBucket: true });
+    pts.push({ x: xw, y: fracToY(0), rpm: 0, event: wrongs[0], isWrongBucket: true });
     wrongs.forEach((e, i) => {
       pts.push({
         x: xw,
         y: fracToY((i + 1) / total),
-        hz: 0,
+        rpm: 0,
         event: e,
         isWrongBucket: true,
       });
     });
-    // bridge from the wrong bucket across the divider to plotStart at the
-    // current cumulative fraction.
     pts.push({
       x: plotStart(),
       y: fracToY(wrongs.length / total),
-      hz: xMinHz.value,
+      rpm: xMinRpm.value,
       event: wrongs[wrongs.length - 1],
     });
   } else {
     pts.push({
       x: plotStart(),
       y: fracToY(0),
-      hz: xMinHz.value,
+      rpm: xMinRpm.value,
       event: sortedCorrect[0] ?? evts[0],
     });
   }
 
   const offset = wrongs.length;
   sortedCorrect.forEach((e, i) => {
-    const x = hzToX(rateHz(e));
+    const x = rpmToX(rateRpm(e));
     pts.push({
       x,
       y: fracToY((offset + i) / total),
-      hz: rateHz(e),
+      rpm: rateRpm(e),
       event: e,
     });
     pts.push({
       x,
       y: fracToY((offset + i + 1) / total),
-      hz: rateHz(e),
+      rpm: rateRpm(e),
       event: e,
     });
   });
@@ -178,7 +177,7 @@ function buildCurve(spec: CurveSpec): Point[] {
     pts.push({
       x: W - PAD_R,
       y: fracToY(1),
-      hz: rateHz(last),
+      rpm: rateRpm(last),
       event: last,
     });
   }
@@ -217,9 +216,9 @@ function onMove(e: MouseEvent) {
 }
 
 // Major ticks: powers of 10 within the range. Labeled.
-function majorTicksHz(): number[] {
-  const min = xMinHz.value;
-  const max = xMaxHz.value;
+function majorTicksRpm(): number[] {
+  const min = xMinRpm.value;
+  const max = xMaxRpm.value;
   const lo = Math.floor(Math.log10(min));
   const hi = Math.ceil(Math.log10(max));
   const out: number[] = [];
@@ -233,9 +232,9 @@ function majorTicksHz(): number[] {
 // Minor ticks: 2× .. 9× each power of 10. Rendered as faint dotted gridlines
 // (no label) — the uneven spacing on screen is what makes the log scale
 // visually obvious.
-function minorTicksHz(): number[] {
-  const min = xMinHz.value;
-  const max = xMaxHz.value;
+function minorTicksRpm(): number[] {
+  const min = xMinRpm.value;
+  const max = xMaxRpm.value;
   const lo = Math.floor(Math.log10(min));
   const hi = Math.ceil(Math.log10(max));
   const out: number[] = [];
@@ -249,11 +248,10 @@ function minorTicksHz(): number[] {
   return out;
 }
 
-function formatHzTick(hz: number): string {
-  if (hz >= 1) return hz.toFixed(0);
-  if (hz >= 0.1) return hz.toFixed(1);
-  if (hz >= 0.01) return hz.toFixed(2);
-  return hz.toFixed(3);
+function formatRpmTick(rpm: number): string {
+  if (rpm >= 10) return rpm.toFixed(0);
+  if (rpm >= 1) return rpm.toFixed(1);
+  return rpm.toFixed(2);
 }
 </script>
 
@@ -265,7 +263,7 @@ function formatHzTick(hz: number): string {
         <span class="label">{{ c.label }}</span>
       </template>
       <span class="tail-note mono-caps">
-        log₁₀ Hz{{ hasWrongBucket ? ' · 0 Hz bucket = wrongs' : '' }}
+        log₁₀ RPM{{ hasWrongBucket ? ' · 0 RPM bucket = wrongs' : '' }}
       </span>
     </div>
     <svg
@@ -276,7 +274,7 @@ function formatHzTick(hz: number): string {
       @mouseleave="hover = null"
     >
       <g class="grid">
-        <line v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="v"
+        <line v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="'y' + v"
           :x1="hasWrongBucket ? PAD_L : plotStart()"
           :x2="W - PAD_R"
           :y1="H - PAD_B - v * (H - PAD_T - PAD_B)"
@@ -284,18 +282,18 @@ function formatHzTick(hz: number): string {
         />
         <!-- minor ticks: 2..9 within each decade, rendered faint + dotted so
              the uneven spacing sells the log scale visually. -->
-        <line v-for="t in minorTicksHz()" :key="'mnr' + t"
+        <line v-for="t in minorTicksRpm()" :key="'mnr' + t"
           class="minor"
-          :x1="hzToX(t)"
-          :x2="hzToX(t)"
+          :x1="rpmToX(t)"
+          :x2="rpmToX(t)"
           :y1="PAD_T"
           :y2="H - PAD_B"
         />
         <!-- major ticks: powers of 10. -->
-        <line v-for="t in majorTicksHz()" :key="'maj' + t"
+        <line v-for="t in majorTicksRpm()" :key="'maj' + t"
           class="major"
-          :x1="hzToX(t)"
-          :x2="hzToX(t)"
+          :x1="rpmToX(t)"
+          :x2="rpmToX(t)"
           :y1="PAD_T"
           :y2="H - PAD_B"
         />
@@ -326,14 +324,14 @@ function formatHzTick(hz: number): string {
             :x="wrongBucketX()"
             :y="H - PAD_B + 14"
             text-anchor="middle"
-          >0Hz</text>
+          >0</text>
         </template>
 
-        <text v-for="t in majorTicksHz()" :key="'tx' + t"
-          :x="hzToX(t)"
+        <text v-for="t in majorTicksRpm()" :key="'tx' + t"
+          :x="rpmToX(t)"
           :y="H - PAD_B + 14"
           text-anchor="middle"
-        >{{ formatHzTick(t) }}</text>
+        >{{ formatRpmTick(t) }}</text>
         <text v-for="v in [0, 0.25, 0.5, 0.75, 1]" :key="'ty' + v"
           :x="PAD_L - 6"
           :y="H - PAD_B - v * (H - PAD_T - PAD_B) + 4"
@@ -356,7 +354,7 @@ function formatHzTick(hz: number): string {
       <div>{{ hover.event.question.content }} = {{ hover.event.question.answer }}</div>
       <div>Submitted: {{ hover.event.answer_submitted ?? '—' }}</div>
       <div>
-        {{ hover.isWrongBucket ? '0 Hz (wrong)' : `${hover.hz.toFixed(2)} Hz` }} ·
+        {{ hover.isWrongBucket ? '0 RPM (wrong)' : `${hover.rpm.toFixed(1)} RPM` }} ·
         {{ Math.round(hover.event.response_time_ms) }} ms ·
         {{ hover.event.is_correct ? 'correct' : 'wrong' }}
       </div>

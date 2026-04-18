@@ -23,13 +23,13 @@ const path = computed(() => {
   return 'M' + pts.join(' L');
 });
 
-const scoreFmt = computed(() => session.currentProficiency.toFixed(2));
+const scoreFmt = computed(() => session.currentProficiency.toFixed(1));
 </script>
 
 <template>
   <div class="sparkline" data-testid="sparkline">
     <div class="label">
-      <span class="mono-caps">Proficiency · Hz</span>
+      <span class="mono-caps">Proficiency · RPM</span>
       <span class="value glow">{{ scoreFmt }}</span>
     </div>
     <svg :width="WIDTH" :height="HEIGHT" class="spark" role="img">

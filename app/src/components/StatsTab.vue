@@ -93,15 +93,15 @@ const accuracy = computed(() =>
     ? '—'
     : ((correctCount.value / totalCount.value) * 100).toFixed(1) + '%',
 );
-const avgHz = computed(() => {
+const avgRpm = computed(() => {
   const arr = filtered.value.filter((e) => e.is_correct && !e.is_timeout);
   if (arr.length === 0) return '—';
-  // Geometric mean in ms, reciprocated to Hz. Invariant: GM(1/x) = 1/GM(x),
-  // so averaging in seconds-then-reciprocating gives the same answer as
+  // Geometric mean of response times in ms, converted to RPM (answers per
+  // minute). GM commutes with reciprocation, so this is the same number as
   // averaging rates directly.
   const gmMs = geometricMean(arr.map((e) => Math.max(1, e.response_time_ms)));
   if (gmMs <= 0) return '—';
-  return (1000 / gmMs).toFixed(2) + ' Hz';
+  return (60_000 / gmMs).toFixed(1) + ' RPM';
 });
 </script>
 
@@ -129,7 +129,7 @@ const avgHz = computed(() => {
           <span class="mono-caps">Accuracy</span><span class="v">{{ accuracy }}</span>
         </div>
         <div class="kpi">
-          <span class="mono-caps">Avg Rate</span><span class="v">{{ avgHz }}</span>
+          <span class="mono-caps">Avg Rate</span><span class="v">{{ avgRpm }}</span>
         </div>
       </div>
     </div>
@@ -137,7 +137,7 @@ const avgHz = computed(() => {
       <TimesTableGrid :events="filtered" />
       <div class="cdf-col">
         <div class="cdf-head panel">
-          <span class="mono-caps">Answer Rate CDF (Hz)</span>
+          <span class="mono-caps">Answer Rate CDF (RPM)</span>
           <div class="compare-toggle">
             <button
               class="win-btn"

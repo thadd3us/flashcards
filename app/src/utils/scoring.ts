@@ -12,6 +12,13 @@ export function geometricMean(values: number[]): number {
   return Math.exp(sumLog / values.length);
 }
 
+// Rolling proficiency in RPM (answers per minute). Wrong / timed-out events
+// get MISS_PENALTY_MS as their response time; we take the geometric mean of
+// the resulting sequence and convert to RPM (60 000 ms per minute / GM ms).
+//
+// Using GM (not arithmetic mean) is invariant under reciprocation —
+// GM(1/x) = 1/GM(x) — so "average the response times then reciprocate" and
+// "average the rates directly" give the same answer.
 export function computeProficiency(
   events: AnswerEvent[],
   windowSize = DEFAULT_PROFICIENCY_WINDOW,
@@ -23,5 +30,5 @@ export function computeProficiency(
   );
   const gm = geometricMean(speeds);
   if (gm <= 0) return 0;
-  return 1000 / gm;
+  return 60_000 / gm;
 }
