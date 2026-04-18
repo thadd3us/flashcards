@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# Playwright
+test-results/
+playwright-report/
+screenshots/
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# Editor
+.vscode/settings.json
