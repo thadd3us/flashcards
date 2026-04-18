@@ -3,35 +3,85 @@ import { computed, ref } from 'vue';
 import { useSessionStore } from '../stores/sessionStore';
 import TimesTableGrid from './TimesTableGrid.vue';
 import CdfPlot from './CdfPlot.vue';
+import type { AnswerEvent } from '../types/answerEvent';
 
 const session = useSessionStore();
 
 type Window = 'session' | 'day' | 'week' | 'month' | 'all';
-const win = ref<Window>('all');
+type CompareWindow = 'day' | 'week' | 'month';
 
-function filterEvents() {
-  const now = Date.now();
-  const all = session.combinedHistory;
-  const sessionStart = session.sessionStart ? Date.parse(session.sessionStart) : now;
-  if (win.value === 'session') {
-    return session.history;
-  }
-  if (win.value === 'all') return all;
-  const cutoffs: Record<Window, number> = {
-    session: sessionStart,
-    day: now - 24 * 3600e3,
-    week: now - 7 * 24 * 3600e3,
-    month: now - 30 * 24 * 3600e3,
-    all: 0,
-  };
-  const cutoff = cutoffs[win.value];
-  return all.filter((e) => {
+const win = ref<Window>('all');
+const compare = ref(false);
+const compareWin = ref<CompareWindow>('day');
+
+const windowMs: Record<CompareWindow, number> = {
+  day: 24 * 3600_000,
+  week: 7 * 24 * 3600_000,
+  month: 30 * 24 * 3600_000,
+};
+
+function filterBy(events: AnswerEvent[], from: number, to: number): AnswerEvent[] {
+  return events.filter((e) => {
     const t = Date.parse(e.timestamp);
-    return !Number.isNaN(t) && t >= cutoff;
+    return !Number.isNaN(t) && t >= from && t < to;
   });
 }
 
+function filterEvents(): AnswerEvent[] {
+  const now = Date.now();
+  if (win.value === 'session') return session.history;
+  if (win.value === 'all') return session.combinedHistory;
+  const ms =
+    win.value === 'day'
+      ? windowMs.day
+      : win.value === 'week'
+        ? windowMs.week
+        : windowMs.month;
+  return filterBy(session.combinedHistory, now - ms, now + 1);
+}
+
 const filtered = computed(filterEvents);
+
+const compareRanges = computed(() => {
+  const now = Date.now();
+  const ms = windowMs[compareWin.value];
+  return {
+    current: { from: now - ms, to: now + 1, label: `Last ${compareWin.value}` },
+    prior: {
+      from: now - 2 * ms,
+      to: now - ms,
+      label: `Prior ${compareWin.value}`,
+    },
+  };
+});
+
+const currentEvents = computed(() =>
+  filterBy(
+    session.combinedHistory,
+    compareRanges.value.current.from,
+    compareRanges.value.current.to,
+  ),
+);
+const priorEvents = computed(() =>
+  filterBy(
+    session.combinedHistory,
+    compareRanges.value.prior.from,
+    compareRanges.value.prior.to,
+  ),
+);
+
+const compareCurves = computed(() => [
+  {
+    label: `Now (${compareRanges.value.current.label})`,
+    events: currentEvents.value,
+    tone: 'cyan' as const,
+  },
+  {
+    label: `Then (${compareRanges.value.prior.label})`,
+    events: priorEvents.value,
+    tone: 'accent2' as const,
+  },
+]);
 
 const correctCount = computed(
   () => filtered.value.filter((e) => e.is_correct && !e.is_timeout).length,
@@ -45,7 +95,9 @@ const accuracy = computed(() =>
 const avgMs = computed(() => {
   const arr = filtered.value.filter((e) => e.is_correct && !e.is_timeout);
   if (arr.length === 0) return '—';
-  return Math.round(arr.reduce((a, e) => a + e.response_time_ms, 0) / arr.length) + ' ms';
+  return (
+    Math.round(arr.reduce((a, e) => a + e.response_time_ms, 0) / arr.length) + ' ms'
+  );
 });
 </script>
 
@@ -79,7 +131,50 @@ const avgMs = computed(() => {
     </div>
     <div class="row">
       <TimesTableGrid :events="filtered" />
-      <CdfPlot :events="filtered" />
+      <div class="cdf-col">
+        <div class="cdf-head panel">
+          <span class="mono-caps">Response Time CDF</span>
+          <div class="compare-toggle">
+            <button
+              class="win-btn"
+              :class="{ active: !compare }"
+              data-testid="cdf-mode-single"
+              @click="compare = false"
+            >
+              Single
+            </button>
+            <button
+              class="win-btn"
+              :class="{ active: compare }"
+              data-testid="cdf-mode-compare"
+              @click="compare = true"
+            >
+              Now vs Then
+            </button>
+          </div>
+          <div v-if="compare" class="compare-win">
+            <button
+              v-for="w in ['day', 'week', 'month'] as const"
+              :key="w"
+              class="win-btn"
+              :class="{ active: compareWin === w }"
+              :data-testid="`cmp-${w}`"
+              @click="compareWin = w"
+            >
+              vs last {{ w }}
+            </button>
+          </div>
+        </div>
+        <CdfPlot
+          v-if="!compare"
+          :events="filtered"
+        />
+        <CdfPlot
+          v-else
+          :curves="compareCurves"
+          :wrongs-as-tail="true"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -137,5 +232,24 @@ const avgMs = computed(() => {
   flex-wrap: wrap;
   gap: 1rem;
   align-items: flex-start;
+}
+.cdf-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 560px;
+  flex: 1 1 560px;
+}
+.cdf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+}
+.compare-toggle,
+.compare-win {
+  display: flex;
+  gap: 0.3rem;
 }
 </style>
