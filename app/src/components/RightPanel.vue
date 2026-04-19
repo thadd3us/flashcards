@@ -24,13 +24,23 @@ const coverageEvents = computed((): AnswerEvent[] =>
 
 const TOTAL_CELLS = 169; // 13 × 13
 
-const seenCount = computed(() => {
+const coverageStats = computed(() => {
   const seen = new Set<string>();
+  let attempts = 0;
   for (const e of coverageEvents.value) {
+    if (e.is_correction) continue;
     const { operandA: a, operandB: b } = e.question;
-    if (a >= 0 && a <= 12 && b >= 0 && b <= 12) seen.add(`${a},${b}`);
+    if (a >= 0 && a <= 12 && b >= 0 && b <= 12) {
+      seen.add(`${a},${b}`);
+      attempts++;
+    }
   }
-  return seen.size;
+  const seenCount = seen.size;
+  return {
+    seenCount,
+    repeats: attempts - seenCount,
+    pct: Math.round((seenCount / TOTAL_CELLS) * 100),
+  };
 });
 
 // ── Comparison window (excludes 'session' — first curve is always this session) ─
@@ -141,11 +151,9 @@ const lastQuestionEvents = computed((): AnswerEvent[] => {
           >{{ WINDOW_LABELS[w] }}</button>
         </div>
         <div class="cover-counts mono-caps">
-          <span class="seen">{{ seenCount }} seen</span>
-          <span class="sep">·</span>
-          <span class="unseen">{{ TOTAL_CELLS - seenCount }} unseen</span>
-          <span class="sep">·</span>
-          <span class="total">{{ TOTAL_CELLS }} total</span>
+          <span class="seen">{{ coverageStats.seenCount }} / {{ TOTAL_CELLS }} ({{ coverageStats.pct }}%) seen</span>
+          <span class="sep">,</span>
+          <span class="repeats">{{ coverageStats.repeats }} repeat{{ coverageStats.repeats === 1 ? '' : 's' }}</span>
         </div>
         <MiniGrid :events="coverageEvents" />
       </div>
@@ -243,7 +251,6 @@ const lastQuestionEvents = computed((): AnswerEvent[] => {
   font-size: 0.68rem;
 }
 .seen    { color: var(--cyan); }
-.unseen  { color: var(--text-muted); }
-.total   { color: var(--text-dim); }
-.sep     { color: var(--border); }
+.repeats { color: var(--text-muted); }
+.sep     { color: var(--text-dim); }
 </style>
