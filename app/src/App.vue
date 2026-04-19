@@ -73,6 +73,18 @@ onBeforeUnmount(() => {
               {{ (game.difficulty.fallDurationMs / 1000).toFixed(0) }}s timeout
             </div>
             <div class="set-hint">Lower = faster cards</div>
+            <div class="set-divider" />
+            <div class="set-title mono-caps">Randomness</div>
+            <input
+              type="range" min="0" max="100" step="1"
+              :value="Math.round(game.randomness * 100)"
+              @input="game.setRandomness(($event.target as HTMLInputElement).valueAsNumber / 100)"
+              class="pressure-slider"
+            />
+            <div class="set-val mono-caps">
+              {{ game.randomness === 0 ? 'Deterministic' : Math.round(game.randomness * 100) + '%' }}
+            </div>
+            <div class="set-hint">0 = always pick the best card</div>
           </div>
         </div>
       </div>
@@ -220,5 +232,10 @@ onBeforeUnmount(() => {
 .set-hint {
   font-size: 0.68rem;
   color: var(--text-muted);
+}
+.set-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
 }
 </style>

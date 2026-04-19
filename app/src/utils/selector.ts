@@ -222,33 +222,32 @@ export function selectNextCard(
   const baselineInfo = pessimisticUnseenBaseline(states, params);
   const baseline = baselineInfo.total;
 
-  const unseen: Question[] = [];
-  const seen: { q: Question; score: number }[] = [];
+  // Unified pool: every non-avoided card gets a score.
+  // Unseen cards score at the pessimistic baseline so they collectively
+  // outweigh low-scoring seen cards proportionally to their count —
+  // no special gate needed.
+  const pool: Array<{ q: Question; score: number; kind: 'seen' | 'unseen' }> = [];
   for (const q of QUESTION_CATALOG) {
     if (avoid.has(q.uuid)) continue;
     const s = states.get(q.uuid);
     if (!s || s.seen === 0) {
-      unseen.push(q);
+      pool.push({ q, score: baseline, kind: 'unseen' });
     } else {
-      seen.push({ q, score: expectedReward(s, now, params).total });
+      pool.push({ q, score: expectedReward(s, now, params).total, kind: 'seen' });
     }
   }
 
-  const snapshot = paramsSnapshot(params);
-  const topChoices: SelectionProvenance['topChoices'] = [...seen]
+  const seenCount   = pool.filter((o) => o.kind === 'seen').length;
+  const unseenCount = pool.filter((o) => o.kind === 'unseen').length;
+  const snapshot    = paramsSnapshot(params);
+
+  const topChoices: SelectionProvenance['topChoices'] = pool
+    .filter((o) => o.kind === 'seen')
     .sort((a, b) => b.score - a.score)
     .slice(0, TOP_K)
-    .map((s) => ({
-      questionUuid: s.q.uuid,
-      score: s.score,
-      kind: 'seen' as const,
-    }));
-  if (unseen.length > 0) {
-    topChoices.push({
-      questionUuid: '(unseen-bucket)',
-      score: baseline,
-      kind: 'unseen-bucket' as const,
-    });
+    .map((o) => ({ questionUuid: o.q.uuid, score: o.score, kind: 'seen' as const }));
+  if (unseenCount > 0) {
+    topChoices.push({ questionUuid: '(unseen)', score: baseline, kind: 'unseen-bucket' as const });
   }
 
   const makeProv = (
@@ -259,66 +258,49 @@ export function selectNextCard(
     pickedScore,
     unseenBaseline: baseline,
     unseenBaselineSource: baselineInfo.source,
-    unseenCount: unseen.length,
-    seenCount: seen.length,
+    unseenCount,
+    seenCount,
     topChoices,
     params: snapshot,
   });
 
-  const pickUnseen = (picker: SelectionProvenance['picker']): Selection => {
-    const q = unseen[Math.floor(rng() * unseen.length)];
-    return { question: q, provenance: makeProv(picker, baseline) };
-  };
-
-  if (seen.length === 0 && unseen.length > 0) {
-    return pickUnseen('unseen-floor');
-  }
-  if (seen.length === 0 && unseen.length === 0) {
-    // Catalog fully avoided (shouldn't happen with 169 cards). Fall back.
+  if (pool.length === 0) {
     const q = QUESTION_CATALOG[Math.floor(rng() * QUESTION_CATALOG.length)];
     return { question: q, provenance: makeProv('fallback-random', 0) };
   }
 
-  const bestSeenScore = seen.reduce((m, s) => Math.max(m, s.score), -Infinity);
-  // Exploration floor: if no seen card's expected reward beats the (empirically
-  // updated) unseen baseline, pick uniformly from unseen cards.
-  if (unseen.length > 0 && bestSeenScore < baseline) {
-    return pickUnseen('unseen-floor');
+  const temp = params.softmaxTemperature;
+
+  // Deterministic mode (randomness = 0): argmax, ties broken uniformly.
+  if (temp <= 0) {
+    const best = pool.reduce((a, b) => (b.score > a.score ? b : a));
+    const tied = pool.filter((o) => o.score >= best.score - 1e-9);
+    const pick = tied[Math.floor(rng() * tied.length)];
+    return { question: pick.q, provenance: makeProv('argmax', pick.score) };
   }
 
-  // Softmax over seen cards + one virtual unseen bucket at baseline reward.
-  type Option =
-    | { kind: 'seen'; q: Question; score: number }
-    | { kind: 'unseen'; score: number };
-  const options: Option[] = seen.map((s) => ({ kind: 'seen' as const, ...s }));
-  if (unseen.length > 0) {
-    options.push({ kind: 'unseen' as const, score: baseline });
-  }
-
-  const temp = Math.max(0.05, params.softmaxTemperature);
-  const maxScore = options.reduce((m, o) => Math.max(m, o.score), -Infinity);
-  const weights = options.map((o) => Math.exp((o.score - maxScore) / temp));
-  const total = weights.reduce((a, b) => a + b, 0);
+  // Softmax over the unified pool.
+  const maxScore = pool.reduce((m, o) => Math.max(m, o.score), -Infinity);
+  const weights  = pool.map((o) => Math.exp((o.score - maxScore) / temp));
+  const total    = weights.reduce((a, b) => a + b, 0);
   if (!isFinite(total) || total <= 0) {
-    if (unseen.length > 0) return pickUnseen('fallback-random');
-    const q = seen[Math.floor(rng() * seen.length)].q;
-    return { question: q, provenance: makeProv('fallback-random', 0) };
+    const pick = pool[Math.floor(rng() * pool.length)];
+    const picker = pick.kind === 'seen' ? 'softmax-seen' : 'softmax-unseen';
+    return { question: pick.q, provenance: makeProv(picker, pick.score) };
   }
   let r = rng() * total;
-  for (let i = 0; i < options.length; i++) {
+  for (let i = 0; i < pool.length; i++) {
     r -= weights[i];
     if (r <= 0) {
-      const pick = options[i];
-      if (pick.kind === 'unseen') return pickUnseen('softmax-unseen');
-      return {
-        question: pick.q,
-        provenance: makeProv('softmax-seen', pick.score),
-      };
+      const pick = pool[i];
+      const picker = pick.kind === 'seen' ? 'softmax-seen' : 'softmax-unseen';
+      return { question: pick.q, provenance: makeProv(picker, pick.score) };
     }
   }
-  const tail = options[options.length - 1];
-  if (tail.kind === 'unseen') return pickUnseen('softmax-unseen');
-  return { question: tail.q, provenance: makeProv('softmax-seen', tail.score) };
+  // Floating-point remainder: take the last element.
+  const pick = pool[pool.length - 1];
+  const picker = pick.kind === 'seen' ? 'softmax-seen' : 'softmax-unseen';
+  return { question: pick.q, provenance: makeProv(picker, pick.score) };
 }
 
 export interface Difficulty {

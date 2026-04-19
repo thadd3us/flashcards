@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import type { Question } from '../types/question';
-import { selectNextCard, estimateDifficulty, type Difficulty } from '../utils/selector';
+import { selectNextCard, estimateDifficulty, DEFAULT_PARAMS, type Difficulty } from '../utils/selector';
 import type { SelectionProvenance } from '../types/answerEvent';
 import { useSessionStore } from './sessionStore';
 
@@ -37,6 +37,7 @@ interface State {
   lastSpawnAt: number; // performance.now() of the most recent spawn (per any lane)
   correction: CorrectionState | null;
   fallPercentile: number; // 0.5–0.99: which pct of recent response times sets fall duration
+  randomness: number;     // 0 = deterministic (argmax), higher = more random (softmax temp)
 }
 
 // Cards fall across (containerHeight - MISS_ZONE_PX) over difficulty.fallDurationMs.
@@ -79,6 +80,7 @@ export const useGameStore = defineStore('game', {
     lastSpawnAt: -Infinity,
     correction: null,
     fallPercentile: 0.9,
+    randomness: 0.25,
   }),
   getters: {
     lowestCard(state): ActiveCard | null {
@@ -133,6 +135,9 @@ export const useGameStore = defineStore('game', {
       this.fallPercentile = Math.max(0.5, Math.min(0.99, p));
       this.updateDifficulty();
     },
+    setRandomness(r: number) {
+      this.randomness = Math.max(0, Math.min(1, r));
+    },
     cardY(card: ActiveCard, now = performance.now()): number {
       return ((now - card.spawnedAt) / 1000) * this.difficulty.scrollSpeedPxPerSec;
     },
@@ -157,7 +162,10 @@ export const useGameStore = defineStore('game', {
     spawnOnLane(lane: number) {
       const session = useSessionStore();
       const avoid = new Set(this.cards.map((c) => c.question.uuid));
-      const sel = selectNextCard(session.combinedHistory, { avoid });
+      const sel = selectNextCard(session.combinedHistory, {
+        avoid,
+        params: { ...DEFAULT_PARAMS, softmaxTemperature: this.randomness },
+      });
       this.cards.push({
         id: `c${this.nextIdCounter++}`,
         question: sel.question,

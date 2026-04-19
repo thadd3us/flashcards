@@ -2,7 +2,7 @@ import type { Question } from './question';
 
 export interface SelectionProvenance {
   // Which path in the selector chose this card.
-  picker: 'unseen-floor' | 'softmax-seen' | 'softmax-unseen' | 'fallback-random';
+  picker: 'argmax' | 'softmax-seen' | 'softmax-unseen' | 'fallback-random';
   // The expected reward the selector assigned to the picked card (or the unseen bucket) at selection time.
   pickedScore: number;
   // Baseline reward that unseen cards (in aggregate) would have contributed.
