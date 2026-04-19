@@ -25,20 +25,25 @@ const coverageEvents = computed((): AnswerEvent[] =>
 const TOTAL_CELLS = 169; // 13 × 13
 
 const coverageStats = computed(() => {
-  const seen = new Set<string>();
-  let attempts = 0;
+  const counts = new Map<string, number>();
   for (const e of coverageEvents.value) {
     if (e.is_correction) continue;
     const { operandA: a, operandB: b } = e.question;
     if (a >= 0 && a <= 12 && b >= 0 && b <= 12) {
-      seen.add(`${a},${b}`);
-      attempts++;
+      const key = `${a},${b}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  const seenCount = seen.size;
+  const seenCount = counts.size;
+  let totalRepeats = 0;
+  let repeatedCards = 0;
+  for (const n of counts.values()) {
+    if (n > 1) { totalRepeats += n - 1; repeatedCards++; }
+  }
   return {
     seenCount,
-    repeats: attempts - seenCount,
+    totalRepeats,
+    repeatedCards,
     pct: Math.round((seenCount / TOTAL_CELLS) * 100),
   };
 });
@@ -151,9 +156,11 @@ const lastQuestionEvents = computed((): AnswerEvent[] => {
           >{{ WINDOW_LABELS[w] }}</button>
         </div>
         <div class="cover-counts mono-caps">
-          <span class="seen">{{ coverageStats.seenCount }} / {{ TOTAL_CELLS }} ({{ coverageStats.pct }}%) seen</span>
-          <span class="sep">,</span>
-          <span class="repeats">{{ coverageStats.repeats }} repeat{{ coverageStats.repeats === 1 ? '' : 's' }}</span>
+          <div class="seen">{{ coverageStats.seenCount }} / {{ TOTAL_CELLS }} ({{ coverageStats.pct }}%) seen</div>
+          <div v-if="coverageStats.totalRepeats > 0" class="repeats">
+            {{ coverageStats.totalRepeats }} repeat{{ coverageStats.totalRepeats === 1 ? '' : 's' }}
+            on {{ coverageStats.repeatedCards }} different card{{ coverageStats.repeatedCards === 1 ? '' : 's' }}
+          </div>
         </div>
         <MiniGrid :events="coverageEvents" />
       </div>
@@ -246,8 +253,8 @@ const lastQuestionEvents = computed((): AnswerEvent[] => {
 }
 .cover-counts {
   display: flex;
-  gap: 0.4rem;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 0.15rem;
   font-size: 0.68rem;
 }
 .seen    { color: var(--cyan); }

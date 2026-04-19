@@ -49,20 +49,25 @@ const accuracy = computed(() =>
 const TOTAL_CELLS = 169; // 13 × 13
 
 const coverageStats = computed(() => {
-  const seen = new Set<string>();
-  let attempts = 0;
+  const counts = new Map<string, number>();
   for (const e of filtered.value) {
     if (e.is_correction) continue;
     const { operandA: a, operandB: b } = e.question;
     if (a >= 0 && a <= 12 && b >= 0 && b <= 12) {
-      seen.add(`${a},${b}`);
-      attempts++;
+      const key = `${a},${b}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  const seenCount = seen.size;
+  const seenCount = counts.size;
+  let totalRepeats = 0;
+  let repeatedCards = 0;
+  for (const n of counts.values()) {
+    if (n > 1) { totalRepeats += n - 1; repeatedCards++; }
+  }
   return {
     seenCount,
-    repeats: attempts - seenCount,
+    totalRepeats,
+    repeatedCards,
     pct: Math.round((seenCount / TOTAL_CELLS) * 100),
   };
 });
@@ -108,8 +113,13 @@ const avgRpm = computed(() => {
 
     <div class="coverage-bar mono-caps">
       <span class="seen">{{ coverageStats.seenCount }} / {{ TOTAL_CELLS }} ({{ coverageStats.pct }}%) seen</span>
-      <span class="sep">,</span>
-      <span class="repeats">{{ coverageStats.repeats }} repeat{{ coverageStats.repeats === 1 ? '' : 's' }}</span>
+      <template v-if="coverageStats.totalRepeats > 0">
+        <span class="sep">·</span>
+        <span class="repeats">
+          {{ coverageStats.totalRepeats }} repeat{{ coverageStats.totalRepeats === 1 ? '' : 's' }}
+          on {{ coverageStats.repeatedCards }} different card{{ coverageStats.repeatedCards === 1 ? '' : 's' }}
+        </span>
+      </template>
     </div>
 
     <div class="grid-area">
