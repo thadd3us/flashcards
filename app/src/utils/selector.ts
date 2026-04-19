@@ -11,8 +11,9 @@
 // online from real rewards (e.g., per-answer regret reduction).
 
 import { QUESTION_CATALOG, type Question } from '../types/question';
+import { MISS_PENALTY_MS } from './scoring';
 import type { AnswerEvent, SelectionProvenance, SpeedTier } from '../types/answerEvent';
-import { classifyTier } from '../types/answerEvent';
+import { classifyTier, computeAdaptiveTierThresholds } from '../types/answerEvent';
 
 export const TIER_SCORE: Record<SpeedTier, number> = {
   instant: 1.0,
@@ -29,8 +30,7 @@ export interface FsrsParams {
   stabilityMissFactor: number; // S *= this on miss
   difficultyAdjust: number; // how fast difficulty moves per attempt
   softmaxTemperature: number; // exploration temperature for the selector
-  coldStartBoost: number; // expected-reward bonus for unseen cards
-  unseenPriorWeight: number; // pseudo-observations for the fixed prior on the unseen baseline
+  coldStartBoost: number; // expected-reward bonus for unseen cards in cold-start prior
 }
 
 export const DEFAULT_PARAMS: FsrsParams = {
@@ -42,7 +42,6 @@ export const DEFAULT_PARAMS: FsrsParams = {
   difficultyAdjust: 0.15,
   softmaxTemperature: 0.25,
   coldStartBoost: 0.15,
-  unseenPriorWeight: 8,
 };
 
 export interface CardState {
@@ -69,8 +68,9 @@ export function applyAnswer(
   state: CardState,
   event: AnswerEvent,
   params: FsrsParams = DEFAULT_PARAMS,
+  thresholds?: { fast: number; slow: number },
 ): CardState {
-  const tier: SpeedTier = classifyTier(event);
+  const tier: SpeedTier = classifyTier(event, thresholds);
   const score = TIER_SCORE[tier];
 
   const recent = [...state.recentScores, score].slice(-params.baselineWindow);
@@ -108,10 +108,13 @@ export function computeStates(
   events: AnswerEvent[],
   params: FsrsParams = DEFAULT_PARAMS,
 ): Map<string, CardState> {
+  // Derive percentile-based tier thresholds from the full history so scoring
+  // is relative to this player's own speed distribution, not fixed ms cutoffs.
+  const thresholds = computeAdaptiveTierThresholds(events) ?? undefined;
   const map = new Map<string, CardState>();
   for (const e of events) {
     const cur = map.get(e.question_uuid) ?? initialState();
-    map.set(e.question_uuid, applyAnswer(cur, e, params));
+    map.set(e.question_uuid, applyAnswer(cur, e, params, thresholds));
   }
   return map;
 }
@@ -147,7 +150,10 @@ export function expectedReward(
 
   const headroom = 1 - state.baselineScore; // room to improve
   const elapsed = state.lastSeenAt == null ? 0 : Math.max(0, now - state.lastSeenAt);
-  const due = Math.min(3, elapsed / Math.max(1, state.stability));
+  // Cap at 1: a card that's 2× overdue isn't twice as worth drilling as one
+  // that's exactly due. Without this cap, slow players accumulate many high-fill
+  // seen cards that permanently out-score the unseen exploration floor.
+  const due = Math.min(1, elapsed / Math.max(1, state.stability));
   // Discovery: weight headroom by difficulty so harder cards feel more worth probing.
   const discovery = headroom * (0.5 + 0.5 * state.difficulty);
   // Fill: potential improvement (headroom) scaled by how "due" it is.
@@ -155,54 +161,36 @@ export function expectedReward(
   return { discovery, fill, total: alpha * discovery + beta * fill };
 }
 
-// Expected reward for a card the user has never seen, computed from the fixed
-// prior. This is the exploration floor: whenever no seen card has higher
-// expected reward than this, we'd rather sample uniformly from the unseen pool.
-export function unseenBaselineReward(params: FsrsParams = DEFAULT_PARAMS): RewardBreakdown {
-  return expectedReward(undefined, Date.now(), params);
-}
-
-// Empirical update to the unseen baseline. Every time we picked a previously
-// unseen card, we observed a sample of the true "unseen-pick" reward. We
-// update the discovery component from those samples and blend with the prior
-// using pseudo-counts from `params.unseenPriorWeight`.
-//
-// We only update discovery (not fill): first attempts realize fill = 0 by
-// construction, so observations carry no fill signal.
-export function empiricalUnseenDiscovery(
-  history: AnswerEvent[],
-): { sum: number; count: number } {
-  const seen = new Set<string>();
-  let sum = 0;
-  let count = 0;
-  for (const e of history) {
-    if (seen.has(e.question_uuid)) continue;
-    seen.add(e.question_uuid);
-    const score = TIER_SCORE[classifyTier(e)];
-    sum += 1 - score; // realized discovery
-    count += 1;
-  }
-  return { sum, count };
-}
-
-export function blendedUnseenBaseline(
-  history: AnswerEvent[],
+// The exploration floor for unseen cards, calibrated pessimistically: we
+// assume any unseen card is as hard as the player's worst observed 5th-percentile
+// card. This means only genuinely-mastered seen cards score above the floor;
+// everything mediocre loses to the temptation of exploring something new.
+export function pessimisticUnseenBaseline(
+  states: Map<string, CardState>,
   params: FsrsParams = DEFAULT_PARAMS,
-): { total: number; source: 'prior' | 'empirical-blended' } {
+): { total: number; source: 'prior' | 'pessimistic-p95' } {
   const alpha = 1 - params.findHolesVsReinforce;
   const beta = params.findHolesVsReinforce;
-  const priorDiscovery = 1 + params.coldStartBoost;
-  const priorFill = 1;
-  const emp = empiricalUnseenDiscovery(history);
-  if (emp.count === 0) {
-    return { total: alpha * priorDiscovery + beta * priorFill, source: 'prior' };
+
+  const seen = [...states.values()].filter((s) => s.seen > 0);
+  if (seen.length === 0) {
+    // Cold start: generous prior to bootstrap exploration.
+    return { total: alpha * (1 + params.coldStartBoost) + beta * 1, source: 'prior' };
   }
-  const w = params.unseenPriorWeight;
-  const blendedDiscovery = (priorDiscovery * w + emp.sum) / (w + emp.count);
-  return {
-    total: alpha * blendedDiscovery + beta * priorFill,
-    source: 'empirical-blended',
-  };
+
+  const baselines = seen.map((s) => s.baselineScore).sort((a, b) => a - b);
+  const difficulties = seen.map((s) => s.difficulty).sort((a, b) => a - b);
+
+  // 5th-percentile baseline = worst-performing slice → maximises headroom assumption
+  const p5Baseline = baselines[Math.floor((baselines.length - 1) * 0.05)];
+  // 95th-percentile difficulty = hardest observed difficulty
+  const p95Difficulty = difficulties[Math.floor((difficulties.length - 1) * 0.95)];
+
+  const headroom = 1 - p5Baseline;
+  const discovery = headroom * (0.5 + 0.5 * p95Difficulty);
+  const fill = headroom; // assume fully due (never seen before)
+
+  return { total: alpha * discovery + beta * fill, source: 'pessimistic-p95' };
 }
 
 export interface SelectorOptions {
@@ -231,7 +219,7 @@ export function selectNextCard(
   const rng = opts.rng ?? Math.random;
   const states = computeStates(history, params);
   const now = Date.now();
-  const baselineInfo = blendedUnseenBaseline(history, params);
+  const baselineInfo = pessimisticUnseenBaseline(states, params);
   const baseline = baselineInfo.total;
 
   const unseen: Question[] = [];
@@ -342,14 +330,26 @@ export interface Difficulty {
   fallDurationMs: number;
 }
 
-// Calibration defaults: one card at a time, 10 s to fall, one spawn every 10 s.
-// Kept deliberately history-insensitive for now so we can tune the core feel
-// without the autopilot fighting us.
-export function estimateDifficulty(_history: AnswerEvent[]): Difficulty {
+// The fall/timeout duration is the `fallPercentile`-th percentile of the
+// player's last 100 response times (wrongs count as MISS_PENALTY_MS). This
+// means the player beats `fallPercentile`×100 % of cards before timing out —
+// so faster play tightens the loop naturally.
+function computeFallDuration(history: AnswerEvent[], percentile: number): number {
+  if (history.length === 0) return 10_000;
+  const times = history
+    .slice(-100)
+    .map((e) => (e.is_correct && !e.is_timeout ? e.response_time_ms : MISS_PENALTY_MS))
+    .sort((a, b) => a - b);
+  const idx = Math.floor((times.length - 1) * percentile);
+  return Math.max(3_000, Math.min(60_000, times[idx] ?? 10_000));
+}
+
+export function estimateDifficulty(history: AnswerEvent[], fallPercentile = 0.9): Difficulty {
+  const fallDurationMs = computeFallDuration(history, fallPercentile);
   return {
     scrollSpeedPxPerSec: 60, // overridden by gameStore once container height is known
     laneCount: 1,
-    spawnIntervalMs: 10_000,
-    fallDurationMs: 10_000,
+    spawnIntervalMs: fallDurationMs,
+    fallDurationMs,
   };
 }

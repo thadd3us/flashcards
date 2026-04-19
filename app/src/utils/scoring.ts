@@ -5,7 +5,7 @@ import type { AnswerEvent } from '../types/answerEvent';
 // (which is capped near the 10 s fall duration ≈ 6 RPM), so a single miss
 // visibly drags your GM down and pulls the matching heatmap cell toward red.
 export const MISS_PENALTY_MS = 30_000;
-export const DEFAULT_PROFICIENCY_WINDOW = 50;
+export const DEFAULT_PROFICIENCY_WINDOW = 10;
 
 export function geometricMean(values: number[]): number {
   if (values.length === 0) return 0;

@@ -7,7 +7,7 @@ export interface SelectionProvenance {
   pickedScore: number;
   // Baseline reward that unseen cards (in aggregate) would have contributed.
   unseenBaseline: number;
-  unseenBaselineSource: 'prior' | 'empirical-blended';
+  unseenBaselineSource: 'prior' | 'pessimistic-p95';
   // Pool sizes at selection time.
   unseenCount: number;
   seenCount: number;
@@ -32,6 +32,9 @@ export interface AnswerEvent {
   is_timeout: boolean;
   answer_submitted: number | null;
   app_version: string;
+  // ISO timestamp of when this app launch (session) started. Used to bucket
+  // events into discrete sessions for the "today earlier" CDF comparison.
+  session_start_timestamp?: string;
   // Present when the card was chosen by the selector (not spawn-order cold start
   // before we had wiring). Omitted for seeded synthetic history in tests.
   selection_provenance?: SelectionProvenance;
@@ -50,9 +53,41 @@ export const SPEED_TIER_THRESHOLDS = {
   slow: 6000,
 } as const;
 
-export function classifyTier(event: AnswerEvent): SpeedTier {
-  if (!event.is_correct) return 'miss';
-  if (event.response_time_ms < SPEED_TIER_THRESHOLDS.instant) return 'instant';
-  if (event.response_time_ms < SPEED_TIER_THRESHOLDS.fast) return 'fast';
+// Optional adaptive thresholds: percentile cutpoints derived from the
+// player's own recent response-time distribution (see computeAdaptiveTierThresholds).
+// When omitted, falls back to the fixed millisecond constants above.
+export function classifyTier(
+  event: AnswerEvent,
+  thresholds?: { fast: number; slow: number },
+): SpeedTier {
+  if (!event.is_correct || event.is_timeout) return 'miss';
+  const rt = event.response_time_ms;
+  if (thresholds) {
+    if (rt <= thresholds.fast) return 'instant'; // fastest 25%
+    if (rt >= thresholds.slow) return 'slow'; // slowest 25%
+    return 'fast'; // middle 50%
+  }
+  if (rt < SPEED_TIER_THRESHOLDS.instant) return 'instant';
+  if (rt < SPEED_TIER_THRESHOLDS.fast) return 'fast';
   return 'slow';
+}
+
+// Derive percentile cutpoints from the last `windowSize` correct answers.
+// Returns null when there's not enough data to form a reliable distribution.
+export function computeAdaptiveTierThresholds(
+  events: AnswerEvent[],
+  windowSize = 100,
+): { fast: number; slow: number } | null {
+  const times = events
+    .slice(-windowSize)
+    .filter((e) => e.is_correct && !e.is_timeout)
+    .map((e) => e.response_time_ms)
+    .sort((a, b) => a - b);
+  if (times.length < 4) return null;
+  // p25 of response times = boundary below which the fastest 25% fall
+  // p75 of response times = boundary above which the slowest 25% fall
+  return {
+    fast: times[Math.floor((times.length - 1) * 0.25)],
+    slow: times[Math.floor((times.length - 1) * 0.75)],
+  };
 }

@@ -183,6 +183,7 @@ export const useSessionStore = defineStore('session', {
         is_timeout: input.isTimeout,
         answer_submitted: input.answerSubmitted,
         app_version: APP_VERSION,
+        session_start_timestamp: this.sessionStart ?? undefined,
         selection_provenance: input.provenance,
         is_correction: input.isCorrection ?? false,
       };

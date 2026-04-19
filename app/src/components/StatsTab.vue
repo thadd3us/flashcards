@@ -2,103 +2,64 @@
 import { computed, ref } from 'vue';
 import { useSessionStore } from '../stores/sessionStore';
 import TimesTableGrid from './TimesTableGrid.vue';
-import CdfPlot from './CdfPlot.vue';
-import type { AnswerEvent } from '../types/answerEvent';
+import CardHistoryBars from './CardHistoryBars.vue';
 import { geometricMean } from '../utils/scoring';
+import { TIME_WINDOWS, WINDOW_LABELS, filterByWindow } from '../utils/timeWindow';
+import type { TimeWindow } from '../utils/timeWindow';
+import type { AnswerEvent } from '../types/answerEvent';
 
 const session = useSessionStore();
 
-type Window = 'session' | 'day' | 'week' | 'month' | 'all';
-type CompareWindow = 'day' | 'week' | 'month';
+// ── Time window ───────────────────────────────────────────────────────────────
+const win = ref<TimeWindow>('all');
 
-const win = ref<Window>('all');
-const compare = ref(false);
-const compareWin = ref<CompareWindow>('day');
+const filtered = computed((): AnswerEvent[] =>
+  filterByWindow(session.combinedHistory, win.value, session.history),
+);
 
-const windowMs: Record<CompareWindow, number> = {
-  day: 24 * 3600_000,
-  week: 7 * 24 * 3600_000,
-  month: 30 * 24 * 3600_000,
-};
+// ── Cell selection ────────────────────────────────────────────────────────────
+const selectedCell = ref<{ a: number; b: number } | null>(null);
 
-function filterBy(events: AnswerEvent[], from: number, to: number): AnswerEvent[] {
-  return events.filter((e) => {
-    const t = Date.parse(e.timestamp);
-    return !Number.isNaN(t) && t >= from && t < to;
-  });
-}
-
-function filterEvents(): AnswerEvent[] {
-  const now = Date.now();
-  if (win.value === 'session') return session.history;
-  if (win.value === 'all') return session.combinedHistory;
-  const ms =
-    win.value === 'day'
-      ? windowMs.day
-      : win.value === 'week'
-        ? windowMs.week
-        : windowMs.month;
-  return filterBy(session.combinedHistory, now - ms, now + 1);
-}
-
-const filtered = computed(filterEvents);
-
-const compareRanges = computed(() => {
-  const now = Date.now();
-  const ms = windowMs[compareWin.value];
-  return {
-    current: { from: now - ms, to: now + 1, label: `Last ${compareWin.value}` },
-    prior: {
-      from: now - 2 * ms,
-      to: now - ms,
-      label: `Prior ${compareWin.value}`,
-    },
-  };
+const selectedCellEvents = computed((): AnswerEvent[] => {
+  if (!selectedCell.value) return [];
+  const { a, b } = selectedCell.value;
+  return session.combinedHistory.filter(
+    (e) => e.question.operandA === a && e.question.operandB === b,
+  );
 });
 
-const currentEvents = computed(() =>
-  filterBy(
-    session.combinedHistory,
-    compareRanges.value.current.from,
-    compareRanges.value.current.to,
-  ),
-);
-const priorEvents = computed(() =>
-  filterBy(
-    session.combinedHistory,
-    compareRanges.value.prior.from,
-    compareRanges.value.prior.to,
-  ),
-);
+function onCellClick(cell: { a: number; b: number }) {
+  if (selectedCell.value?.a === cell.a && selectedCell.value?.b === cell.b) {
+    selectedCell.value = null;
+  } else {
+    selectedCell.value = cell;
+  }
+}
 
-const compareCurves = computed(() => [
-  {
-    label: `Now (${compareRanges.value.current.label})`,
-    events: currentEvents.value,
-    tone: 'cyan' as const,
-  },
-  {
-    label: `Then (${compareRanges.value.prior.label})`,
-    events: priorEvents.value,
-    tone: 'accent2' as const,
-  },
-]);
-
+// ── Summary stats ─────────────────────────────────────────────────────────────
+const totalCount   = computed(() => filtered.value.length);
 const correctCount = computed(
   () => filtered.value.filter((e) => e.is_correct && !e.is_timeout).length,
 );
-const totalCount = computed(() => filtered.value.length);
 const accuracy = computed(() =>
   totalCount.value === 0
     ? '—'
     : ((correctCount.value / totalCount.value) * 100).toFixed(1) + '%',
 );
+const TOTAL_CELLS = 169; // 13 × 13
+
+const seenCount = computed(() => {
+  const seen = new Set<string>();
+  for (const e of filtered.value) {
+    const { operandA: a, operandB: b } = e.question;
+    if (a >= 0 && a <= 12 && b >= 0 && b <= 12) seen.add(`${a},${b}`);
+  }
+  return seen.size;
+});
+
 const avgRpm = computed(() => {
   const arr = filtered.value.filter((e) => e.is_correct && !e.is_timeout);
   if (arr.length === 0) return '—';
-  // Geometric mean of response times in ms, converted to RPM (answers per
-  // minute). GM commutes with reciprocation, so this is the same number as
-  // averaging rates directly.
   const gmMs = geometricMean(arr.map((e) => Math.max(1, e.response_time_ms)));
   if (gmMs <= 0) return '—';
   return (60_000 / gmMs).toFixed(1) + ' RPM';
@@ -111,74 +72,60 @@ const avgRpm = computed(() => {
       <div class="title mono-caps">Telemetry</div>
       <div class="filters">
         <button
-          v-for="w in ['session', 'day', 'week', 'month', 'all'] as const"
+          v-for="w in TIME_WINDOWS"
           :key="w"
           class="win-btn"
           :class="{ active: win === w }"
           :data-testid="`win-${w}`"
           @click="win = w"
-        >
-          {{ w }}
-        </button>
+        >{{ WINDOW_LABELS[w] }}</button>
       </div>
       <div class="kpis">
         <div class="kpi">
-          <span class="mono-caps">Answers</span><span class="v">{{ totalCount }}</span>
+          <span class="mono-caps">Answers</span>
+          <span class="v">{{ totalCount }}</span>
         </div>
         <div class="kpi">
-          <span class="mono-caps">Accuracy</span><span class="v">{{ accuracy }}</span>
+          <span class="mono-caps">Accuracy</span>
+          <span class="v">{{ accuracy }}</span>
         </div>
         <div class="kpi">
-          <span class="mono-caps">Avg Rate</span><span class="v">{{ avgRpm }}</span>
+          <span class="mono-caps">Avg Rate</span>
+          <span class="v">{{ avgRpm }}</span>
         </div>
       </div>
     </div>
-    <div class="row">
-      <TimesTableGrid :events="filtered" />
-      <div class="cdf-col">
-        <div class="cdf-head panel">
-          <span class="mono-caps">Answer Rate CDF (RPM)</span>
-          <div class="compare-toggle">
-            <button
-              class="win-btn"
-              :class="{ active: !compare }"
-              data-testid="cdf-mode-single"
-              @click="compare = false"
-            >
-              Single
-            </button>
-            <button
-              class="win-btn"
-              :class="{ active: compare }"
-              data-testid="cdf-mode-compare"
-              @click="compare = true"
-            >
-              Now vs Then
-            </button>
-          </div>
-          <div v-if="compare" class="compare-win">
-            <button
-              v-for="w in ['day', 'week', 'month'] as const"
-              :key="w"
-              class="win-btn"
-              :class="{ active: compareWin === w }"
-              :data-testid="`cmp-${w}`"
-              @click="compareWin = w"
-            >
-              vs last {{ w }}
-            </button>
-          </div>
-        </div>
-        <CdfPlot
-          v-if="!compare"
-          :events="filtered"
-        />
-        <CdfPlot
-          v-else
-          :curves="compareCurves"
-          :wrongs-as-tail="true"
-        />
+
+    <div class="coverage-bar mono-caps">
+      <span class="seen">{{ seenCount }} seen</span>
+      <span class="sep">·</span>
+      <span class="unseen">{{ TOTAL_CELLS - seenCount }} unseen</span>
+      <span class="sep">·</span>
+      <span class="total">{{ TOTAL_CELLS }} total</span>
+    </div>
+
+    <div class="grid-area">
+      <TimesTableGrid :events="filtered" @cell-click="onCellClick" />
+    </div>
+
+    <div
+      v-if="selectedCell && selectedCellEvents.length > 0"
+      class="cell-history panel"
+      data-testid="cell-history"
+    >
+      <div class="cell-title">
+        <span class="cell-expr mono-caps">
+          {{ selectedCell.a }} × {{ selectedCell.b }} = {{ selectedCell.a * selectedCell.b }}
+        </span>
+        <span class="cell-count mono-caps">
+          {{ selectedCellEvents.length }} attempt{{ selectedCellEvents.length === 1 ? '' : 's' }}
+        </span>
+        <button class="close-btn" @click="selectedCell = null">✕</button>
       </div>
+      <CardHistoryBars
+        :events="selectedCellEvents"
+        :session-start-timestamp="session.sessionStart"
+      />
     </div>
   </div>
 </template>
@@ -196,64 +143,52 @@ const avgRpm = computed(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
 }
-.title {
-  color: var(--accent);
-}
-.filters {
-  display: flex;
-  gap: 0.3rem;
-  flex: 1;
-}
-.win-btn {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.7rem;
-}
+.title { color: var(--accent); }
+.filters { display: flex; gap: 0.3rem; }
+.win-btn { padding: 0.3rem 0.65rem; font-size: 0.7rem; }
 .win-btn.active {
   border-color: var(--cyan);
   color: var(--cyan);
   background: var(--bg-raised);
 }
-.kpis {
+.kpis { display: flex; gap: 1.25rem; margin-left: auto; }
+.kpi  { display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-end; }
+.kpi .v { font-size: 1.1rem; font-weight: 600; color: var(--cyan); }
+.coverage-bar {
   display: flex;
-  gap: 1.25rem;
+  gap: 0.4rem;
+  align-items: baseline;
+  font-size: 0.68rem;
+  padding: 0 0.25rem;
 }
-.kpi {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  align-items: flex-end;
-}
-.kpi .v {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--cyan);
-}
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-start;
-}
-.cdf-col {
+.seen    { color: var(--cyan); }
+.unseen  { color: var(--text-muted); }
+.total   { color: var(--text-dim); }
+.sep     { color: var(--border); }
+.grid-area { display: flex; }
+.cell-history {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  min-width: 560px;
-  flex: 1 1 560px;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
 }
-.cdf-head {
+.cell-title {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.75rem;
-  flex-wrap: wrap;
-  padding: 0.5rem 0.75rem;
 }
-.compare-toggle,
-.compare-win {
-  display: flex;
-  gap: 0.3rem;
+.cell-expr { color: var(--cyan); font-size: 0.82rem; }
+.cell-count { color: var(--text-muted); font-size: 0.72rem; }
+.close-btn {
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
 }
+.close-btn:hover { color: var(--text); border-color: var(--text-dim); }
 </style>

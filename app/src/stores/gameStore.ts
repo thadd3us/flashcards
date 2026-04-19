@@ -36,6 +36,7 @@ interface State {
   nextIdCounter: number;
   lastSpawnAt: number; // performance.now() of the most recent spawn (per any lane)
   correction: CorrectionState | null;
+  fallPercentile: number; // 0.5–0.99: which pct of recent response times sets fall duration
 }
 
 // Cards fall across (containerHeight - MISS_ZONE_PX) over difficulty.fallDurationMs.
@@ -77,6 +78,7 @@ export const useGameStore = defineStore('game', {
     nextIdCounter: 0,
     lastSpawnAt: -Infinity,
     correction: null,
+    fallPercentile: 0.9,
   }),
   getters: {
     lowestCard(state): ActiveCard | null {
@@ -113,19 +115,23 @@ export const useGameStore = defineStore('game', {
     },
     updateDifficulty() {
       const session = useSessionStore();
-      // estimateDifficulty is currently history-insensitive and returns
-      // calibration defaults. We still call it so we have one place to
-      // re-enable an adaptive ramp later. Panic forces 1 lane regardless.
-      const next = estimateDifficulty(session.combinedHistory);
+      const next = estimateDifficulty(session.combinedHistory, this.fallPercentile);
       if (session.panic) next.laneCount = 1;
-      // Preserve URL-overridden spawn/fall on each update.
-      const o = readUrlOverride();
-      this.difficulty = {
-        ...next,
-        spawnIntervalMs: o.spawn,
-        fallDurationMs: o.fall,
-      };
+      // Only apply the ?fast= URL override when it's explicitly present (tests).
+      const hasUrlOverride =
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('fast') !== null;
+      if (hasUrlOverride) {
+        const o = readUrlOverride();
+        next.spawnIntervalMs = o.spawn;
+        next.fallDurationMs = o.fall;
+      }
+      this.difficulty = next;
       this.recalibrateSpeed();
+    },
+    setFallPercentile(p: number) {
+      this.fallPercentile = Math.max(0.5, Math.min(0.99, p));
+      this.updateDifficulty();
     },
     cardY(card: ActiveCard, now = performance.now()): number {
       return ((now - card.spawnedAt) / 1000) * this.difficulty.scrollSpeedPxPerSec;

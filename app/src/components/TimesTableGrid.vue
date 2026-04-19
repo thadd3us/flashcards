@@ -4,6 +4,7 @@ import type { AnswerEvent } from '../types/answerEvent';
 import { MISS_PENALTY_MS } from '../utils/scoring';
 
 const props = defineProps<{ events: AnswerEvent[] }>();
+const emit = defineEmits<{ 'cell-click': [{ a: number; b: number }] }>();
 
 interface Cell {
   a: number;
@@ -96,6 +97,7 @@ function cellTitle(c: Cell): string {
             class="cell"
             :style="{ background: cellColor(cells[a - 1][b - 1]) }"
             :title="cellTitle(cells[a - 1][b - 1])"
+            @click="emit('cell-click', { a: a - 1, b: b - 1 })"
           >
             <span class="product">{{ (a - 1) * (b - 1) }}</span>
           </td>
@@ -136,7 +138,7 @@ function cellTitle(c: Cell): string {
   color: rgba(10, 14, 26, 0.85);
   font-weight: 600;
   position: relative;
-  cursor: default;
+  cursor: pointer;
 }
 .product {
   mix-blend-mode: multiply;

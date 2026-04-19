@@ -208,30 +208,29 @@ async function seedHistoryAndBoot(page: Page, username: string) {
   await expect(page.getByTestId('active-user')).toContainText(username);
 }
 
-test.describe('Stats tab — CDF compare + FSRS seeding', () => {
+test.describe('Stats tab — heatmap + right-panel CDF', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => localStorage.clear());
   });
 
-  test('single-mode CDF with seeded history', async ({ page }) => {
+  test('heatmap visible with seeded history', async ({ page }) => {
     await seedHistoryAndBoot(page, 'seed-alice');
     await page.getByTestId('tab-stats').click();
     await expect(page.getByTestId('times-grid')).toBeVisible();
-    await page.screenshot({ path: `${SHOT_DIR}/10-cdf-single-seeded.png`, fullPage: true });
+    await page.screenshot({ path: `${SHOT_DIR}/10-stats-heatmap.png`, fullPage: true });
   });
 
-  test('compare-mode CDF: Now vs Then with wrongs on right tail', async ({ page }) => {
+  test('right-panel CDF: week and month comparison windows', async ({ page }) => {
     await seedHistoryAndBoot(page, 'seed-bob');
-    await page.getByTestId('tab-stats').click();
-    await page.getByTestId('cdf-mode-compare').click();
-    await expect(page.getByTestId('cmp-day')).toBeVisible();
-    // Default is "day" — switch to "week" to include the Then cohort centered 8d ago.
+    // CDF lives in the right panel — visible on any tab.
+    // Default comparison is "today"; switch to "week" to include the Then cohort.
+    await expect(page.getByTestId('cmp-today')).toBeVisible();
     await page.getByTestId('cmp-week').click();
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOT_DIR}/11-cdf-compare-week.png`, fullPage: true });
-    // And a "month" view that still shows the difference
+    await page.screenshot({ path: `${SHOT_DIR}/11-cdf-right-panel-week.png`, fullPage: true });
+    // Month view
     await page.getByTestId('cmp-month').click();
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOT_DIR}/12-cdf-compare-month.png`, fullPage: true });
+    await page.screenshot({ path: `${SHOT_DIR}/12-cdf-right-panel-month.png`, fullPage: true });
   });
 });

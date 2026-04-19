@@ -82,7 +82,11 @@ async function submit() {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && !game.correction) {
+  if (game.correction) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    togglePause();
+  } else if ((e.key === ' ' || e.key === 'Enter') && game.paused) {
     e.preventDefault();
     togglePause();
   }
