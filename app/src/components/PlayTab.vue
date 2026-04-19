@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useGameStore, type ActiveCard } from '../stores/gameStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { playTierSound } from '../composables/useAudio';
@@ -101,7 +101,7 @@ function triggerPanic() {
 function togglePause() {
   if (game.paused) {
     game.resumeGame();
-    input.value?.focus();
+    nextTick(() => input.value?.focus());
   } else {
     game.pauseGame();
   }
