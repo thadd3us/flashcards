@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <clipPath id="icon-clip">
+      <rect width="512" height="512" rx="88"/>
+    </clipPath>
+
+    <!-- Background: deep space, slightly lighter at center -->
+    <radialGradient id="bg" cx="48%" cy="44%" r="65%">
+      <stop offset="0%"   stop-color="#0d1a2e"/>
+      <stop offset="70%"  stop-color="#07101e"/>
+      <stop offset="100%" stop-color="#030810"/>
+    </radialGradient>
+
+    <!-- Soft ambient glow at center -->
+    <radialGradient id="ambient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#7dcfff" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#7dcfff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Dot-grid pattern -->
+    <pattern id="dots" x="0" y="0" width="52" height="52" patternUnits="userSpaceOnUse">
+      <circle cx="26" cy="26" r="1.4" fill="#7dcfff" opacity="0.18"/>
+    </pattern>
+
+    <!-- Glow for the × bars -->
+    <filter id="bar-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="b1"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b2"/>
+      <feMerge>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="b2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Strong glow for diamond -->
+    <filter id="diamond-glow" x="-80%" y="-80%" width="260%" height="260%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="b1"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="7"  result="b2"/>
+      <feMerge>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="b2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle glow for brackets -->
+    <filter id="bracket-glow" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ─── Background ─── -->
+  <rect width="512" height="512" rx="88" fill="url(#bg)"/>
+
+  <!-- Dot grid clipped to icon shape -->
+  <rect width="512" height="512" rx="88" fill="url(#dots)"/>
+
+  <!-- Center ambient light -->
+  <ellipse cx="256" cy="256" rx="220" ry="220" fill="url(#ambient)" clip-path="url(#icon-clip)"/>
+
+  <!-- ─── Matrix-rain ghost numbers ─── -->
+  <!-- These simulate falling digits from the multiplication table,           -->
+  <!-- very faint green, behind everything else.                              -->
+  <g clip-path="url(#icon-clip)" font-family="'Courier New', Courier, monospace"
+     fill="#00ff65" text-anchor="middle">
+
+    <!-- Top-left column -->
+    <text x="66"  y="76"  font-size="26" opacity="0.13">7×8</text>
+    <text x="66"  y="108" font-size="20" opacity="0.08">56</text>
+    <text x="66"  y="135" font-size="16" opacity="0.05">63</text>
+    <text x="66"  y="157" font-size="14" opacity="0.03">49</text>
+
+    <!-- Top-right column -->
+    <text x="446" y="68"  font-size="20" opacity="0.09">81</text>
+    <text x="446" y="97"  font-size="26" opacity="0.13">9×9</text>
+    <text x="446" y="129" font-size="18" opacity="0.07">72</text>
+    <text x="446" y="153" font-size="14" opacity="0.04">64</text>
+
+    <!-- Bottom-left column -->
+    <text x="66"  y="382" font-size="16" opacity="0.04">36</text>
+    <text x="66"  y="404" font-size="20" opacity="0.07">48</text>
+    <text x="66"  y="432" font-size="26" opacity="0.12">8×6</text>
+    <text x="66"  y="462" font-size="18" opacity="0.06">42</text>
+
+    <!-- Bottom-right column -->
+    <text x="446" y="378" font-size="16" opacity="0.04">77</text>
+    <text x="446" y="400" font-size="20" opacity="0.07">42</text>
+    <text x="446" y="428" font-size="26" opacity="0.12">6×7</text>
+    <text x="446" y="458" font-size="18" opacity="0.06">56</text>
+
+    <!-- Sparse mid-edge hints -->
+    <text x="256" y="44"  font-size="15" opacity="0.05">12×11</text>
+    <text x="256" y="480" font-size="15" opacity="0.05" >132</text>
+    <text x="36"  y="256" font-size="16" opacity="0.05" transform="rotate(-90,36,256)">×</text>
+    <text x="476" y="256" font-size="16" opacity="0.05" transform="rotate(90,476,256)">×</text>
+  </g>
+
+  <!-- ─── × symbol — two crossing beams ─── -->
+  <!-- Extra-wide blur layer for the deep outer glow -->
+  <g clip-path="url(#icon-clip)">
+    <line x1="100" y1="100" x2="412" y2="412"
+          stroke="#3a9fd8" stroke-width="56" stroke-linecap="round" opacity="0.35"/>
+    <line x1="412" y1="100" x2="100" y2="412"
+          stroke="#3a9fd8" stroke-width="56" stroke-linecap="round" opacity="0.35"/>
+  </g>
+
+  <!-- Main bars with glow -->
+  <line x1="100" y1="100" x2="412" y2="412"
+        stroke="#7dcfff" stroke-width="28" stroke-linecap="round"
+        filter="url(#bar-glow)" clip-path="url(#icon-clip)"/>
+  <line x1="412" y1="100" x2="100" y2="412"
+        stroke="#7dcfff" stroke-width="28" stroke-linecap="round"
+        filter="url(#bar-glow)" clip-path="url(#icon-clip)"/>
+
+  <!-- ─── Center diamond node ─── -->
+  <g clip-path="url(#icon-clip)">
+    <!-- Outer glow body -->
+    <polygon points="256,200 312,256 256,312 200,256"
+             fill="#7dcfff" filter="url(#diamond-glow)"/>
+    <!-- Core: solid cyan -->
+    <polygon points="256,212 300,256 256,300 212,256" fill="#7dcfff"/>
+    <!-- Inner bright highlight -->
+    <polygon points="256,232 276,256 256,280 236,256" fill="white" opacity="0.70"/>
+    <!-- Tiny center dot (white hot) -->
+    <circle cx="256" cy="256" r="7" fill="white" opacity="0.90"/>
+  </g>
+
+  <!-- ─── Corner targeting brackets (Ender's Game reticle) ─── -->
+  <g stroke="#7dcfff" stroke-width="5.5" fill="none"
+     stroke-linecap="square" filter="url(#bracket-glow)"
+     clip-path="url(#icon-clip)" opacity="0.72">
+    <!-- Top-left: corner at (70,70), arms to x=106 and y=106 -->
+    <polyline points="106,70 70,70 70,106"/>
+    <!-- Top-right: corner at (442,70) -->
+    <polyline points="406,70 442,70 442,106"/>
+    <!-- Bottom-left: corner at (70,442) -->
+    <polyline points="70,406 70,442 106,442"/>
+    <!-- Bottom-right: corner at (442,442) -->
+    <polyline points="442,406 442,442 406,442"/>
+  </g>
+
+  <!-- ─── Tick marks on the bars (subtle grid reference lines) ─── -->
+  <!-- These suggest the multiplication grid, perpendicular to each bar -->
+  <g clip-path="url(#icon-clip)" stroke="#7dcfff" stroke-width="2" opacity="0.22">
+    <!-- Ticks perpendicular to TL→BR bar, at 1/4, 1/2, 3/4 positions -->
+    <!-- 1/4 point = (178,178), perpendicular direction = (-1,1)/√2 -->
+    <line x1="162" y1="194" x2="194" y2="162"/>
+    <!-- 3/4 point = (334,334) -->
+    <line x1="318" y1="350" x2="350" y2="318"/>
+
+    <!-- Ticks perpendicular to TR→BL bar -->
+    <!-- 1/4 point = (334,178) -->
+    <line x1="318" y1="162" x2="350" y2="194"/>
+    <!-- 3/4 point = (178,334) -->
+    <line x1="162" y1="318" x2="194" y2="350"/>
+  </g>
+</svg>
