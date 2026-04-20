@@ -24,6 +24,7 @@ const cells = computed(() => {
     Array.from({ length: 13 }, () => []),
   );
   for (const e of props.events) {
+    if (e.is_correction) continue;
     const a = e.question.operandA;
     const b = e.question.operandB;
     if (a < 0 || a > 12 || b < 0 || b > 12) continue;
@@ -48,27 +49,27 @@ const cells = computed(() => {
   return grid;
 });
 
-// Normalize the color gradient against the range actually present in the
-// data — so the *worst* cell is always pure red, not some washed-out amber.
-const scoreRange = computed(() => {
-  const scores: number[] = [];
-  for (let a = 0; a <= 12; a++) {
+// Rank-based color: sort all present RPMs and color each cell by its
+// percentile rank so one outlier can't collapse the whole scale.
+const rpmRanks = computed((): Map<string, number> => {
+  const entries: { a: number; b: number; rpm: number }[] = [];
+  for (let a = 0; a <= 12; a++)
     for (let b = 0; b <= 12; b++) {
       const r = cells.value[a][b].rpm;
-      if (r !== null) scores.push(r);
+      if (r !== null) entries.push({ a, b, rpm: r });
     }
-  }
-  if (scores.length === 0) return { min: 0, max: 1 };
-  return { min: Math.min(...scores), max: Math.max(...scores) };
+  entries.sort((x, y) => x.rpm - y.rpm);
+  const ranks = new Map<string, number>();
+  const n = entries.length;
+  entries.forEach(({ a, b }, i) => ranks.set(`${a},${b}`, n === 1 ? 1 : i / (n - 1)));
+  return ranks;
 });
 
 function cellColor(c: Cell): string {
   if (c.rpm === null) return 'rgba(255, 255, 255, 0.03)';
-  const { min, max } = scoreRange.value;
-  const frac = max === min ? 1 : (c.rpm - min) / (max - min);
-  // hue: 0 = red (worst), 130 = green (best).
-  const hue = Math.round(frac * 130);
-  return `hsl(${hue} 78% 55%)`;
+  const frac = rpmRanks.value.get(`${c.a},${c.b}`) ?? 0;
+  // hue: 0 = red (worst/slowest), 130 = green (best/fastest).
+  return `hsl(${Math.round(frac * 130)} 78% 55%)`;
 }
 
 function cellTitle(c: Cell): string {

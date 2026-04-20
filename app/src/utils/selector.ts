@@ -319,6 +319,7 @@ export interface Difficulty {
 function computeFallDuration(history: AnswerEvent[], percentile: number): number {
   if (history.length === 0) return 10_000;
   const times = history
+    .filter((e) => !e.is_correction)
     .slice(-100)
     .map((e) => (e.is_correct && !e.is_timeout ? e.response_time_ms : MISS_PENALTY_MS))
     .sort((a, b) => a - b);

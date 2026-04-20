@@ -22,6 +22,7 @@ const cells = computed((): CellData[][] => {
     Array.from({ length: GRID }, () => []),
   );
   for (const e of props.events) {
+    if (e.is_correction) continue;
     const a = e.question.operandA;
     const b = e.question.operandB;
     if (a < 0 || a >= GRID || b < 0 || b >= GRID) continue;
@@ -41,22 +42,24 @@ const cells = computed((): CellData[][] => {
   return grid;
 });
 
-const scoreRange = computed(() => {
-  const rpms: number[] = [];
+const rpmRanks = computed((): Map<string, number> => {
+  const entries: { a: number; b: number; rpm: number }[] = [];
   for (let a = 0; a < GRID; a++)
     for (let b = 0; b < GRID; b++) {
       const r = cells.value[a][b].rpm;
-      if (r !== null) rpms.push(r);
+      if (r !== null) entries.push({ a, b, rpm: r });
     }
-  if (rpms.length === 0) return { min: 0, max: 1 };
-  return { min: Math.min(...rpms), max: Math.max(...rpms) };
+  entries.sort((x, y) => x.rpm - y.rpm);
+  const ranks = new Map<string, number>();
+  const n = entries.length;
+  entries.forEach(({ a, b }, i) => ranks.set(`${a},${b}`, n === 1 ? 1 : i / (n - 1)));
+  return ranks;
 });
 
 function cellColor(a: number, b: number): string {
   const c = cells.value[a][b];
   if (c.rpm === null) return 'rgba(255,255,255,0.05)';
-  const { min, max } = scoreRange.value;
-  const frac = max === min ? 1 : (c.rpm - min) / (max - min);
+  const frac = rpmRanks.value.get(`${a},${b}`) ?? 0;
   return `hsl(${Math.round(frac * 130)} 70% 40%)`;
 }
 
