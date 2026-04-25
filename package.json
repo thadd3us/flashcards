@@ -10,6 +10,11 @@
     "tauri:dev": "npm run tauri:dev --prefix app",
     "tauri:build": "npm run tauri:build --prefix app",
     "test": "npm test --prefix app",
-    "test:install": "npm run test:install --prefix app"
+    "test:install": "npm run test:install --prefix app",
+    "install-elvish": "npm install --prefix learn_elvish",
+    "dev:elvish": "npm run dev --prefix learn_elvish",
+    "build:elvish": "npm run build --prefix learn_elvish",
+    "tauri:dev:elvish": "npm run tauri:dev --prefix learn_elvish",
+    "tauri:build:elvish": "npm run tauri:build --prefix learn_elvish"
   }
 }

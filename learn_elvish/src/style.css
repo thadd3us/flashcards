@@ -1,0 +1,254 @@
+/* ────────────────────────────────────────────────────────────────────
+   Pedo Edhellen — visual theme
+   Inspired by Imladris under starlight: deep midnight blues, mithril
+   silver, mallorn-leaf gold, with soft glow halos.
+   ──────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap');
+
+:root {
+  /* Deep night-of-Eärendil palette */
+  --night-0: #060812;
+  --night-1: #0b1124;
+  --night-2: #121a36;
+  --night-3: #1b2750;
+
+  /* Mithril & moonlight */
+  --mithril: #d8e4ff;
+  --mithril-dim: #8aa0c8;
+  --mithril-mute: #5a6a8c;
+
+  /* Mallorn gold */
+  --gold: #e7c66a;
+  --gold-bright: #ffe39a;
+  --gold-deep: #a0823a;
+
+  /* Lothlórien green (soft, leafy) */
+  --leaf: #8fbf9a;
+  --leaf-deep: #4a7a5a;
+
+  /* Phial of Galadriel */
+  --phial: #bfe4ff;
+
+  /* Mordor accents (used sparingly for "wrong") */
+  --ember: #d76b4a;
+  --ember-deep: #8c2a18;
+
+  /* Roles */
+  --bg: var(--night-0);
+  --bg-raised: var(--night-1);
+  --panel: rgba(14, 22, 46, 0.62);
+  --panel-strong: rgba(8, 13, 30, 0.78);
+  --border: rgba(216, 228, 255, 0.18);
+  --border-soft: rgba(216, 228, 255, 0.08);
+  --text: var(--mithril);
+  --text-dim: var(--mithril-dim);
+  --text-mute: var(--mithril-mute);
+  --accent: var(--gold);
+  --accent-bright: var(--gold-bright);
+  --link: var(--phial);
+
+  font-family: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  /* Fallback in case the SceneBackground component fails to mount. */
+  background: var(--bg);
+}
+body {
+  background: transparent;
+}
+
+/* ── Typography ────────────────────────────────────────────────────── */
+
+.elvish-title {
+  font-family: 'Cinzel', 'EB Garamond', serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow:
+    0 0 8px rgba(231, 198, 106, 0.45),
+    0 0 24px rgba(231, 198, 106, 0.18);
+}
+
+.elvish-h2 {
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.12em;
+  color: var(--mithril);
+  font-weight: 500;
+}
+
+.serif-italic {
+  font-family: 'Cormorant Garamond', 'EB Garamond', serif;
+  font-style: italic;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+
+button {
+  font-family: 'Cinzel', 'EB Garamond', serif;
+  font-size: 0.92rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mithril);
+  background: linear-gradient(180deg, rgba(27, 39, 80, 0.65), rgba(11, 17, 36, 0.85));
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s, box-shadow .15s, transform .08s;
+  position: relative;
+}
+
+button:hover:not(:disabled) {
+  color: var(--accent-bright);
+  border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(231, 198, 106, 0.35),
+              inset 0 0 12px rgba(231, 198, 106, 0.05);
+}
+
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.primary {
+  border-color: var(--accent);
+  color: var(--accent-bright);
+  background: linear-gradient(180deg, rgba(64, 50, 18, 0.55), rgba(20, 14, 4, 0.85));
+  box-shadow:
+    0 0 10px rgba(231, 198, 106, 0.20),
+    inset 0 0 18px rgba(231, 198, 106, 0.08);
+}
+
+button.primary:hover:not(:disabled) {
+  box-shadow:
+    0 0 22px rgba(255, 227, 154, 0.55),
+    inset 0 0 22px rgba(255, 227, 154, 0.10);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--border-soft);
+  color: var(--text-dim);
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────── */
+
+input, textarea {
+  font-family: 'EB Garamond', serif;
+  font-size: 1.4rem;
+  color: var(--mithril);
+  background: rgba(6, 8, 18, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.55rem 0.9rem;
+  outline: none;
+  letter-spacing: 0.04em;
+}
+
+input:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(231, 198, 106, 0.35);
+}
+
+/* ── Panels / cards ────────────────────────────────────────────────── */
+
+.panel {
+  background:
+    linear-gradient(180deg, rgba(20, 30, 60, 0.55), rgba(8, 13, 30, 0.78));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1.5rem;
+  position: relative;
+}
+
+.panel::before {
+  /* Decorative inner frame */
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Flourish corners — subtle leaf accent */
+.flourish {
+  color: var(--accent);
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.4em;
+  opacity: 0.6;
+  text-align: center;
+}
+
+/* utility */
+.mono-caps {
+  font-family: 'Cinzel', serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.glow {
+  text-shadow:
+    0 0 8px currentColor,
+    0 0 24px currentColor;
+}
+
+.elvish-word {
+  font-family: 'Cormorant Garamond', 'EB Garamond', serif;
+  font-style: italic;
+  color: var(--accent-bright);
+  text-shadow: 0 0 12px rgba(231, 198, 106, 0.35);
+  letter-spacing: 0.02em;
+}
+
+.english-word {
+  font-family: 'EB Garamond', serif;
+  color: var(--mithril);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+::-webkit-scrollbar-thumb {
+  background: rgba(216, 228, 255, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(231, 198, 106, 0.35); }
+
+/* fade/scale animation helpers */
+@keyframes shimmer-in {
+  from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0);   filter: blur(0);   }
+}
+.shimmer-in { animation: shimmer-in 0.45s ease-out both; }
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(231, 198, 106, 0.25); }
+  50%      { box-shadow: 0 0 28px rgba(255, 227, 154, 0.55); }
+}
+.pulse-glow { animation: pulse-glow 2.4s ease-in-out infinite; }

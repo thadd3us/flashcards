@@ -1,0 +1,107 @@
+{
+  "title": "Pedo Edhellen",
+  "subtitle": "Speak Elvish — a Sindarin primer",
+  "levels": [
+    {
+      "id": "L1",
+      "name": "I. Suilad — Greetings & Common Words",
+      "description": "Basic greetings and friendly words you would hear in Imladris.",
+      "cards": [
+        { "sindarin": "mellon", "english": "friend" },
+        { "sindarin": "mae govannen", "english": "well met" },
+        { "sindarin": "suilad", "english": "greeting" },
+        { "sindarin": "hîr", "english": "lord" },
+        { "sindarin": "hiril", "english": "lady" },
+        { "sindarin": "hannon le", "english": "thank you" },
+        { "sindarin": "navaer", "english": "farewell" },
+        { "sindarin": "aníron", "english": "I desire" }
+      ]
+    },
+    {
+      "id": "L2",
+      "name": "II. Ardh — The Land",
+      "description": "The natural world — sea, sky, and stone.",
+      "cards": [
+        { "sindarin": "galadh", "english": "tree" },
+        { "sindarin": "aear", "english": "sea" },
+        { "sindarin": "anor", "english": "sun" },
+        { "sindarin": "ithil", "english": "moon" },
+        { "sindarin": "gil", "english": "star" },
+        { "sindarin": "amon", "english": "hill" },
+        { "sindarin": "ered", "english": "mountains" },
+        { "sindarin": "nen", "english": "water" },
+        { "sindarin": "tawar", "english": "forest" }
+      ]
+    },
+    {
+      "id": "L3",
+      "name": "III. Gwaith — The Peoples",
+      "description": "The folk of Middle-earth.",
+      "cards": [
+        { "sindarin": "edhel", "english": "elf" },
+        { "sindarin": "adan", "english": "man" },
+        { "sindarin": "perian", "english": "hobbit" },
+        { "sindarin": "naug", "english": "dwarf" },
+        { "sindarin": "orch", "english": "orc" },
+        { "sindarin": "ithron", "english": "wizard" },
+        { "sindarin": "rochben", "english": "rider" },
+        { "sindarin": "aran", "english": "king" }
+      ]
+    },
+    {
+      "id": "L4",
+      "name": "IV. Gwerin — Numbers I–V",
+      "description": "The first five numbers in Sindarin.",
+      "cards": [
+        { "sindarin": "min", "english": "one" },
+        { "sindarin": "tâd", "english": "two" },
+        { "sindarin": "neled", "english": "three" },
+        { "sindarin": "canad", "english": "four" },
+        { "sindarin": "leben", "english": "five" }
+      ]
+    },
+    {
+      "id": "L5",
+      "name": "V. Teitho — Spelling: Greetings",
+      "description": "Type the Sindarin word from memory. Use the on-screen keys for vowels with circumflex.",
+      "defaultMode": "spelling",
+      "cards": [
+        { "sindarin": "mellon", "english": "friend", "mode": "spelling" },
+        { "sindarin": "hîr", "english": "lord", "mode": "spelling" },
+        { "sindarin": "hiril", "english": "lady", "mode": "spelling" },
+        { "sindarin": "suilad", "english": "greeting", "mode": "spelling" },
+        { "sindarin": "mae govannen", "english": "well met", "mode": "spelling" },
+        { "sindarin": "hannon le", "english": "thank you", "mode": "spelling" },
+        { "sindarin": "navaer", "english": "farewell", "mode": "spelling" }
+      ]
+    },
+    {
+      "id": "L6",
+      "name": "VI. Lim — Plural Forms (Grammar)",
+      "description": "Sindarin plurals shift internal vowels. Choose the correct plural for each singular.",
+      "cards": [
+        { "sindarin": "adan", "english": "edain", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "adan → edain (man → men)" },
+        { "sindarin": "perian", "english": "periain", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "hobbit → hobbits" },
+        { "sindarin": "edhel", "english": "edhil", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "elf → elves" },
+        { "sindarin": "naug", "english": "noeg", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "dwarf → dwarves" },
+        { "sindarin": "orch", "english": "yrch", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "orc → orcs" },
+        { "sindarin": "galadh", "english": "gelaidh", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "tree → trees" },
+        { "sindarin": "amon", "english": "emyn", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "hill → hills (cf. Emyn Muil)" },
+        { "sindarin": "aran", "english": "erain", "promptLabel": "singular", "answerLabel": "plural", "promptDirection": "sindarin", "note": "king → kings" }
+      ]
+    },
+    {
+      "id": "L7",
+      "name": "VII. Teitho Bedithir — Spelling: Phrases",
+      "description": "Type each Sindarin phrase. Watch for the circumflex on long vowels.",
+      "defaultMode": "spelling",
+      "cards": [
+        { "sindarin": "mae govannen", "english": "well met", "mode": "spelling" },
+        { "sindarin": "gûr nín", "english": "my heart", "mode": "spelling" },
+        { "sindarin": "aníron", "english": "I desire", "mode": "spelling" },
+        { "sindarin": "pedo mellon a minno", "english": "speak friend and enter", "mode": "spelling" },
+        { "sindarin": "elen síla lúmenn'", "english": "a star shines (greeting)", "mode": "spelling" }
+      ]
+    }
+  ]
+}
